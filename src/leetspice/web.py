@@ -2,10 +2,12 @@
 
 import re
 from collections.abc import Sequence
+from hashlib import sha256
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -165,13 +167,50 @@ def challenge_detail(
     )
 
 
+def _challenge_asset(request: Request, challenge: Challenge, asset_id: str) -> tuple[Path, str]:
+    asset = next((item for item in challenge.assets if item.get("id") == asset_id), None)
+    if asset is None or not challenge.fixture_path:
+        raise HTTPException(status_code=404)
+    root = (Path(request.app.state.settings.challenges_path) / challenge.fixture_path).resolve()
+    candidate = (root / str(asset.get("path", ""))).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as error:
+        raise HTTPException(status_code=404) from error
+    if not candidate.is_file():
+        raise HTTPException(status_code=404)
+    return candidate, str(asset.get("download_name") or candidate.name)
+
+
+@router.get("/challenges/{slug}/assets/{asset_id}")
+def challenge_asset(
+    slug: str,
+    asset_id: str,
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+) -> FileResponse:
+    challenge = db.scalar(
+        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+    )
+    if challenge is None:
+        raise HTTPException(status_code=404)
+    path, download_name = _challenge_asset(request, challenge, asset_id)
+    return FileResponse(
+        path,
+        filename=download_name,
+        media_type="application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.post("/challenges/{slug}/submit", response_class=HTMLResponse)
-def submit(
+async def submit(
     slug: str,
     request: Request,
     db: Annotated[Session, Depends(get_session)],
     csrf_token: Annotated[str, Form()],
     netlist: Annotated[str, Form()] = "",
+    layout: Annotated[UploadFile | None, File()] = None,
 ) -> HTMLResponse:
     require_csrf(request, csrf_token)
     user = _current_user(request, db)
@@ -183,7 +222,40 @@ def submit(
     if challenge is None:
         raise HTTPException(status_code=404)
     try:
-        _validate_netlist(netlist, challenge)
+        if challenge.submission_kind == "gds":
+            maximum = int(challenge.submission_config.get("maximum_bytes", 8 * 1024 * 1024))
+            extensions = tuple(challenge.submission_config.get("extensions", [".gds"]))
+            if layout is None or not layout.filename:
+                raise ValueError("Select a GDSII file to submit")
+            filename = Path(layout.filename).name
+            if Path(filename).suffix.casefold() not in {item.casefold() for item in extensions}:
+                raise ValueError("Layout submission must be a .gds file")
+            payload = await layout.read(maximum + 1)
+            if not payload:
+                raise ValueError("GDSII file cannot be empty")
+            if len(payload) > maximum:
+                raise ValueError(f"GDSII file exceeds {maximum} bytes")
+            submission = Submission(
+                user_id=user.id,
+                challenge_id=challenge.id,
+                submission_kind="gds",
+                payload_binary=payload,
+                original_filename=filename[:255],
+                media_type="application/octet-stream",
+                payload_size=len(payload),
+                payload_sha256=sha256(payload).hexdigest(),
+            )
+        else:
+            _validate_netlist(netlist, challenge)
+            encoded = netlist.encode("utf-8")
+            submission = Submission(
+                user_id=user.id,
+                challenge_id=challenge.id,
+                submission_kind="netlist",
+                netlist=netlist,
+                payload_size=len(encoded),
+                payload_sha256=sha256(encoded).hexdigest(),
+            )
     except ValueError as exc:
         return templates.TemplateResponse(
             request,
@@ -198,7 +270,6 @@ def submit(
             ),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
-    submission = Submission(user_id=user.id, challenge_id=challenge.id, netlist=netlist)
     db.add(submission)
     db.commit()
     return RedirectResponse(f"/submissions/{submission.id}", status_code=status.HTTP_303_SEE_OTHER)

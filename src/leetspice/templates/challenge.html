@@ -7,23 +7,27 @@
 </section>
 <div class="workspace">
   <section>
-    <div class="panel brief"><h2>Design brief</h2><p>{{ challenge.description }}</p><dl><dt>Required subcircuit</dt><dd>{{ challenge.expected_subckt }}</dd><dt>Pin order</dt><dd>{{ challenge.expected_pins|join(' · ') }}</dd></dl></div>
+    <div class="panel brief"><h2>Design brief</h2><p>{{ challenge.description }}</p><dl><dt>{% if challenge.submission_kind == 'gds' %}Required top cell{% else %}Required subcircuit{% endif %}</dt><dd>{{ challenge.expected_subckt }}</dd><dt>{% if challenge.submission_kind == 'gds' %}Required pins{% else %}Pin order{% endif %}</dt><dd>{{ challenge.expected_pins|join(' · ') }}</dd></dl>{% if challenge.assets %}<div class="challenge-assets"><span>DESIGN FILES</span>{% for asset in challenge.assets %}<a href="/challenges/{{ challenge.slug }}/assets/{{ asset.id }}">{{ asset.label }} →</a>{% endfor %}</div>{% endif %}</div>
     <div class="panel leaderboard-preview">
       <div class="panel-head"><h2>Leaderboard</h2><a href="/challenges/{{ challenge.slug }}/leaderboard">Full board →</a></div>
       <ol>{% for user, score in leaders[:5] %}<li><span>{{ user.display_name }}</span><strong>{{ "%.4g"|format(score) }} {{ challenge.score_unit }}</strong></li>{% else %}<li class="empty">No accepted designs yet. Set the reference.</li>{% endfor %}</ol>
     </div>
   </section>
   <section class="panel editor-panel">
-    <div class="panel-head"><h2>Netlist input</h2><span>TEXT / SPICE</span></div>
+    <div class="panel-head"><h2>{% if challenge.submission_kind == 'gds' %}Layout input{% else %}Netlist input{% endif %}</h2><span>{% if challenge.submission_kind == 'gds' %}BINARY / GDSII{% else %}TEXT / SPICE{% endif %}</span></div>
     {% if error %}<div class="alert">{{ error }}</div>{% endif %}
     {% if current_user %}
-    <form method="post" action="/challenges/{{ challenge.slug }}/submit">
+    <form method="post" action="/challenges/{{ challenge.slug }}/submit"{% if challenge.submission_kind == 'gds' %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% if challenge.submission_kind == 'gds' %}
+      <label class="file-drop"><span>GDSII STREAM FILE</span><input type="file" name="layout" accept=".gds" required><strong>Select .gds layout</strong><small>Maximum {{ challenge.submission_config.maximum_bytes // 1048576 }} MiB. Raw GDSII only; archives are not accepted.</small></label>
+      {% else %}
       <textarea name="netlist" spellcheck="false" aria-label="SPICE netlist" required>{{ submitted_netlist|default(challenge.starter_netlist, true) }}</textarea>
-      <div class="submit-row"><small>Input is submitted exactly as shown.</small><button class="primary">Queue simulation</button></div>
+      {% endif %}
+      <div class="submit-row"><small>Input is submitted exactly as provided.</small><button class="primary">Queue verification</button></div>
     </form>
     {% else %}
-      <pre>{{ challenge.starter_netlist }}</pre><p class="gate"><a href="/login">Log in</a> or <a href="/register">create an account</a> to submit a design.</p>
+      {% if challenge.submission_kind == 'netlist' %}<pre>{{ challenge.starter_netlist }}</pre>{% endif %}<p class="gate"><a href="/login">Log in</a> or <a href="/register">create an account</a> to submit a design.</p>
     {% endif %}
   </section>
 </div>

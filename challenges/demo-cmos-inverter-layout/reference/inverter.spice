@@ -1,0 +1,5 @@
+* Server-owned LVS reference for the SG13G2 inverter layout challenge.
+.subckt inverter in out vdd vss
+MNMOS out in vss vss sg13_lv_nmos W=0.74u L=0.13u ng=1 m=1
+MPMOS out in vdd vdd sg13_lv_pmos W=1.12u L=0.13u ng=1 m=1
+.ends inverter

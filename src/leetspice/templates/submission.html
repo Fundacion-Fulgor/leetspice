@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Submission {{ submission.id }} · LeetSpice{% endblock %}
 {% block content %}
-<section class="challenge-title"><div><p class="eyebrow">RUN-{{ "%05d"|format(submission.id) }}</p><h1>Simulation result</h1></div><a class="arrow-link" href="/challenges/{{ submission.challenge.slug }}">Back to challenge →</a></section>
+<section class="challenge-title"><div><p class="eyebrow">RUN-{{ "%05d"|format(submission.id) }}</p><h1>Verification result</h1></div><a class="arrow-link" href="/challenges/{{ submission.challenge.slug }}">Back to challenge →</a></section>
 <div class="workspace result-grid">
   <section class="panel result-panel"><div class="panel-head"><h2>Judge status</h2><span>{{ submission.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</span></div>{% include "_submission_status.html" %}</section>
-  <section class="panel"><div class="panel-head"><h2>Submitted netlist</h2><span>IMMUTABLE INPUT</span></div><pre>{{ submission.netlist }}</pre></section>
+  <section class="panel"><div class="panel-head"><h2>Submitted {% if submission.submission_kind == 'gds' %}layout{% else %}netlist{% endif %}</h2><span>IMMUTABLE INPUT</span></div>{% if submission.submission_kind == 'gds' %}<dl class="payload-meta"><dt>File</dt><dd>{{ submission.original_filename }}</dd><dt>Size</dt><dd>{{ submission.payload_size }} bytes</dd><dt>Format</dt><dd>GDSII</dd><dt>SHA-256</dt><dd>{{ submission.payload_sha256 }}</dd></dl>{% else %}<pre>{{ submission.netlist }}</pre>{% endif %}</section>
 </div>
 {% endblock %}

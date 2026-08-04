@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -36,6 +36,12 @@ class Challenge(Base):
     expected_subckt: Mapped[str] = mapped_column(String(100))
     expected_pins: Mapped[list[str]] = mapped_column(JSON, default=list)
     starter_netlist: Mapped[str] = mapped_column(Text, default="")
+    submission_kind: Mapped[str] = mapped_column(String(30), default="netlist")
+    judge_backend: Mapped[str] = mapped_column(String(80), default="cace")
+    submission_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    judge_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    fixture_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    assets: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     score_unit: Mapped[str] = mapped_column(String(30), default="points")
     lower_is_better: Mapped[bool] = mapped_column(Boolean, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
@@ -53,7 +59,13 @@ class Submission(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     challenge_id: Mapped[int] = mapped_column(ForeignKey("challenges.id"), index=True)
-    netlist: Mapped[str] = mapped_column(Text)
+    submission_kind: Mapped[str] = mapped_column(String(30), default="netlist")
+    netlist: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_binary: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    media_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    payload_size: Mapped[int] = mapped_column(default=0)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

@@ -9,8 +9,8 @@ browser/client
 FastAPI web  <---->  PostgreSQL  <---->  persistent worker
                                            |
                                            v
-                                  mock runner (default)
-                                  or configured simulator
+                                  CACE/ngspice netlist judge
+                                  or KLayout DRC/LVS judge
 ```
 
 `compose.yaml` runs three services. The web process handles HTTP and records work in PostgreSQL. PostgreSQL is the durable coordination boundary; no separate broker is required for the PoC. A single worker starts with the stack, claims queued work, invokes the selected backend, and records results. The `worker_data` volume is for worker state and generated artifacts that must survive container restarts; PostgreSQL remains the source of truth for job state.
@@ -24,9 +24,9 @@ This design has no per-submission `podman run`, Docker API call, or nested conta
 - Worker entry point: the `leetspice-worker` console script.
 - Database: PostgreSQL through `DATABASE_URL` using the `postgresql+psycopg` SQLAlchemy dialect.
 - Challenge source: versioned fixtures below `CHALLENGES_PATH`.
-- Runner selection: `RUNNER_BACKEND`; `mock` is the safe local default.
+- Netlist runner selection: `RUNNER_BACKEND`; layout challenges explicitly select KLayout.
 
-The image includes ngspice so a deliberately configured simulator backend need not modify the image. Its presence does not mean the application should execute submissions automatically, and it provides no sandboxing.
+The image includes ngspice, CACE, KLayout 0.30.3, and the pinned IHP SG13G2 PDK. Their presence provides verification capability, not a security boundary.
 
 ## Challenge fixtures
 
@@ -37,9 +37,14 @@ challenges/<slug>/
   challenge.json
   specification.md
   starter.cir
+  inverter.sch
+  inverter.sym
+  reference/
 ```
 
-`challenge.json` is UTF-8 JSON with a `schema_version`, stable `slug`, public metadata, starter-file reference, electrical constraints, and public checks. Seeding code may ingest it directly or map those fields into normalized tables. Paths are relative to the fixture directory and must not escape it. `scripts/validate-challenge.py` performs basic structural and path validation; it is not a full JSON Schema validator.
+Netlist submissions remain UTF-8 text. Layout submissions are bounded raw GDSII stored in PostgreSQL as binary data so web and worker need no shared upload filesystem. Challenges declare a submission kind, judge backend/configuration, fixture path, and public asset manifest. Asset downloads resolve manifest IDs beneath the configured fixture root and never accept arbitrary paths.
+
+The layout judge writes each GDS to a temporary workspace, requires exactly one server-configured top cell, runs the pinned IHP DRC wrapper with one process and no density checks, then runs strict LVS against a server-owned netlist. It requires the LVS database, extracted netlist, log, and explicit match marker. Temporary workspaces are removed after each run.
 
 ## Deployment boundaries
 

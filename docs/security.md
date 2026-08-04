@@ -13,9 +13,9 @@ These are useful operational controls. They are **not a sandbox**.
 
 ## Persistent-worker risk
 
-The PoC worker is reused across submissions. If a real backend processes user-controlled netlists or model files, submissions share a user, process environment, filesystem view, installed simulator, network namespace, and persistent volume. Simulator vulnerabilities, unsafe directives, resource exhaustion, filesystem access, stale files, and cross-job data leakage can affect later jobs or the host-visible service state. Restarting the worker after a failure does not establish a trustworthy security boundary.
+The PoC worker is reused across submissions. If a real backend processes user-controlled netlists or GDS files, submissions share a user, process environment, filesystem view, installed tools, network namespace, and persistent volume. Simulator vulnerabilities, malformed native-parser input, pathological geometry, resource exhaustion, stale processes, and cross-job data leakage can affect later jobs or the host-visible service state. Restarting the worker after a failure does not establish a trustworthy security boundary.
 
-Do not expose real-runner submission to untrusted users. Do not mount the container-engine socket, host directories, credentials, or unrelated data into the worker. Do not claim that the non-root UID or container alone provides full sandboxing.
+Do not expose real-runner submission to untrusted users. This includes the KLayout GDS path even though uploads are size-limited and deck paths are server-owned. Do not mount the container-engine socket, host directories, credentials, or unrelated data into the worker. Do not claim that the non-root UID or container alone provides full sandboxing.
 
 `RUNNER_BACKEND=mock` is the expected mode for public demos until isolation work is complete. Mock results validate product flows, not circuit correctness.
 

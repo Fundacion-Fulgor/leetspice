@@ -1,3 +1,5 @@
+from hashlib import sha256
+
 from sqlalchemy import select
 
 from leetspice import db
@@ -200,10 +202,84 @@ def test_health(client):
 
 def test_stylesheet_url_is_versioned(client):
     response = client.get("/")
-    assert '/static/app.css?v=2' in response.text
+    assert '/static/app.css?v=3' in response.text
 
 
 def test_demo_challenge_identifies_target_pdk(client):
     response = client.get("/challenges/demo-cmos-inverter")
     assert response.status_code == 200
     assert "IHP SG13G2" in response.text
+
+
+def test_layout_challenge_upload_and_assets(client, csrf, register):
+    register()
+    page = client.get("/challenges/demo-cmos-inverter-layout")
+    assert page.status_code == 200
+    assert 'enctype="multipart/form-data"' in page.text
+    assert 'accept=".gds"' in page.text
+    assert "Xschem schematic" in page.text
+
+    schematic = client.get("/challenges/demo-cmos-inverter-layout/assets/schematic")
+    assert schematic.status_code == 200
+    assert "attachment" in schematic.headers["content-disposition"]
+    assert schematic.headers["x-content-type-options"] == "nosniff"
+    assert client.get("/challenges/demo-cmos-inverter-layout/assets/reference").status_code == 404
+
+    payload = b"\x00\x06\x00\x02GDS"
+    response = client.post(
+        "/challenges/demo-cmos-inverter-layout/submit",
+        data={"csrf_token": csrf(page)},
+        files={"layout": ("inverter.gds", payload, "application/octet-stream")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    detail = client.get(response.headers["location"])
+    assert "inverter.gds" in detail.text
+    assert sha256(payload).hexdigest() in detail.text
+
+    with db.SessionLocal() as session:
+        submission = session.scalar(
+            select(Submission).where(Submission.submission_kind == "gds")
+        )
+        assert submission is not None
+        assert submission.netlist is None
+        assert submission.payload_binary == payload
+        assert submission.payload_size == len(payload)
+
+
+def test_layout_challenge_rejects_wrong_or_empty_upload(client, csrf, register):
+    register()
+    page = client.get("/challenges/demo-cmos-inverter-layout")
+    wrong = client.post(
+        "/challenges/demo-cmos-inverter-layout/submit",
+        data={"csrf_token": csrf(page)},
+        files={"layout": ("inverter.zip", b"data", "application/zip")},
+    )
+    assert wrong.status_code == 422
+    assert "must be a .gds file" in wrong.text
+
+    empty = client.post(
+        "/challenges/demo-cmos-inverter-layout/submit",
+        data={"csrf_token": csrf(wrong)},
+        files={"layout": ("inverter.gds", b"", "application/octet-stream")},
+    )
+    assert empty.status_code == 422
+    assert "cannot be empty" in empty.text
+
+
+def test_layout_starter_wires_touch_all_mos_terminals():
+    schematic = (
+        __import__("pathlib").Path(__file__).parents[1]
+        / "challenges/demo-cmos-inverter-layout/inverter.sch"
+    ).read_text()
+    expected_wires = (
+        "N 0 0 0 50 {lab=in}",
+        "N 0 -50 0 0 {lab=in}",
+        "N 40 0 40 20 {lab=out}",
+        "N 40 -20 40 0 {lab=out}",
+        "N 40 -100 40 -80 {lab=vdd}",
+        "N 40 -50 50 -50 {lab=vdd}",
+        "N 40 50 50 50 {lab=vss}",
+        "N 40 80 40 100 {lab=vss}",
+    )
+    assert all(wire in schematic for wire in expected_wires)

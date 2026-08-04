@@ -54,6 +54,7 @@ services:
       PDK_ROOT: /opt/IHP-Open-PDK
       PDK: ihp-sg13g2
       LEETSPICE_JUDGE_TIMEOUT: ${LEETSPICE_JUDGE_TIMEOUT:-120}
+      LEETSPICE_LAYOUT_TIMEOUT: ${LEETSPICE_LAYOUT_TIMEOUT:-300}
     depends_on:
       db:
         condition: service_healthy

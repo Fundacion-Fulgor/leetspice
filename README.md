@@ -6,9 +6,9 @@ The project is developed with support from **Fundación Fulgor**.
 
 ## Current status
 
-The current PoC implements local account registration and login, a challenge catalog, constrained SPICE subcircuit submission, asynchronous judging, result pages, and a per-challenge leaderboard. The default deterministic mock judge exercises the complete workflow without claiming to simulate a circuit.
+The current PoC implements local account registration and login, a challenge catalog, constrained SPICE and bounded GDSII submissions, asynchronous judging, result pages, and per-challenge leaderboards. The electrical challenge runs CACE/ngspice across SG13G2 PVT corners. The layout challenge runs the IHP KLayout DRC and LVS decks against a server-owned reference.
 
-The PoC intentionally does **not** launch a container for each submission. The worker is a prestarted, long-lived process. `RUNNER_BACKEND=mock` is the local default so development does not execute an untrusted simulator workload. See [Security](docs/security.md) before enabling a real runner.
+The PoC intentionally does **not** launch a container for each submission. The worker is a prestarted, long-lived process. The checked-in local configuration enables real CACE and KLayout verification for controlled first-party use. See [Security](docs/security.md): this worker is not safe for hostile netlists or GDS files.
 
 ## Podman quick start
 
@@ -103,9 +103,11 @@ Configuration is environment-driven. `.env.example` documents the Compose inputs
 | --- | --- | --- |
 | `DATABASE_URL` | SQLAlchemy PostgreSQL connection used by web and worker | Constructed by Compose |
 | `SECRET_KEY` | Application signing secret | Insecure development value |
-| `RUNNER_BACKEND` | Runner selection: `mock` or the experimental `ngspice` backend | `mock` |
+| `RUNNER_BACKEND` | Netlist runner selection: `mock`, `ngspice`, or `cace` | `cace` |
 | `CHALLENGES_PATH` | Challenge fixture directory | `/app/challenges` in containers |
 | `WORKER_DATA_DIR` | Persistent worker scratch/state location | `/var/lib/leetspice` in the worker |
+| `LEETSPICE_JUDGE_TIMEOUT` | CACE/ngspice wall-clock timeout | `120` seconds |
+| `LEETSPICE_LAYOUT_TIMEOUT` | Per-stage KLayout wall-clock timeout | `300` seconds |
 | `POSTGRES_*` | Database name, user, password, and published port | See `.env.example` |
 | `WEB_PORT` | Published web port | `8000` |
 
@@ -113,9 +115,9 @@ Generate a development secret with `python -c "import secrets; print(secrets.tok
 
 ## Challenges and runner
 
-The demo fixture is at [`challenges/demo-cmos-inverter/challenge.json`](challenges/demo-cmos-inverter/challenge.json), with a public specification and starter SPICE subcircuit beside it. The application currently mirrors this fixture during startup; importing versioned challenge packages is a post-PoC task.
+The netlist fixture is at [`challenges/demo-cmos-inverter`](challenges/demo-cmos-inverter). The layout fixture is at [`challenges/demo-cmos-inverter-layout`](challenges/demo-cmos-inverter-layout), with public Xschem `.sch`/`.sym` files and a private LVS reference. Only manifest-listed assets are downloadable; the application does not expose the whole challenge directory.
 
-The mock backend provides deterministic development/test outcomes and is not circuit simulation. An experimental ngspice adapter assembles validated submissions into a server-owned testbench and invokes ngspice from the already-running worker. Arbitrary submission execution in that persistent process is not safely isolated, so keep the mock backend enabled outside a controlled local PoC.
+Netlists are validated before CACE embeds them in a server-owned testbench. GDSII uploads are limited to 8 MiB and stored as immutable binary payloads with SHA-256 metadata. The layout judge requires exactly one configured top cell, runs IHP SG13G2 DRC in deep mode without density checks, and performs strict LVS including top-level pins. Accepted layouts score `1000 / bounding-box area in um^2`. These controls constrain inputs but do not sandbox the native EDA tools.
 
 ## Authentication scope
 

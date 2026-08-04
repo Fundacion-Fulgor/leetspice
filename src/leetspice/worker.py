@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from .judge import CaceJudge, JudgeResult, MockJudge, NgspiceJudge
+from .judge import CaceJudge, JudgeResult, LayoutJudge, MockJudge, NgspiceJudge
 
 LOGGER = logging.getLogger("leetspice.worker")
 SESSION_MODULES = ("leetspice.database", "leetspice.db")
@@ -102,6 +102,27 @@ def _payload(job: Any) -> tuple[str, str, list[str]]:
     if not isinstance(pins, (list, tuple)) or not all(isinstance(pin, str) for pin in pins):
         raise ValueError("job must provide an ordered pin list")
     return netlist, subckt, list(pins)
+
+
+def _judge(job: Any, backend: Any) -> tuple[JudgeResult, str]:
+    source = getattr(job, "submission", job)
+    challenge = getattr(source, "challenge", None) or getattr(job, "challenge", None)
+    if getattr(source, "submission_kind", "netlist") == "gds":
+        if challenge is None or getattr(challenge, "judge_backend", None) != "klayout":
+            raise ValueError("GDS submission requires a KLayout challenge")
+        payload = getattr(source, "payload_binary", None)
+        if not isinstance(payload, bytes):
+            raise ValueError("GDS submission payload is missing")
+        layout_backend = LayoutJudge(timeout=float(os.getenv("LEETSPICE_LAYOUT_TIMEOUT", "300")))
+        result = layout_backend.judge(
+            payload,
+            challenge.expected_subckt,
+            list(challenge.expected_pins),
+            challenge.fixture_path,
+            dict(challenge.judge_config),
+        )
+        return result, type(layout_backend).__name__
+    return backend.judge(*_payload(job)), type(backend).__name__
 
 
 def _store_related_run(job: Any, result: JudgeResult, backend_name: str) -> None:
@@ -192,7 +213,7 @@ def process_one(session_factory: Callable[[], Any], model: type[Any], backend: A
         job = session.get(model, job_id) if job_id is not None else session.merge(job)
         backend_name = type(backend).__name__
         try:
-            result = backend.judge(*_payload(job))
+            result, backend_name = _judge(job, backend)
             if not isinstance(result, JudgeResult):
                 raise TypeError("judge backend must return JudgeResult")
             _store_result(job, result, backend_name)

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     session_max_age: int = 60 * 60 * 24 * 14
     secure_cookies: bool = False
     seed_demo: bool = True
+    challenges_path: str = "challenges"
 
 
 @lru_cache

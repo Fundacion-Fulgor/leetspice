@@ -7,7 +7,14 @@ import pytest
 from sqlalchemy import JSON, Float, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from leetspice.judge import CaceJudge, JudgeResult, MockJudge, NgspiceJudge, validate_netlist
+from leetspice.judge import (
+    CaceJudge,
+    JudgeResult,
+    LayoutJudge,
+    MockJudge,
+    NgspiceJudge,
+    validate_netlist,
+)
 from leetspice.worker import configured_backend, process_one
 
 VALID_INVERTER = """* a small CMOS inverter
@@ -268,3 +275,111 @@ def test_cace_schematic_embeds_validated_submission() -> None:
     schematic = CaceJudge._schematic(VALID_INVERTER)
     assert VALID_INVERTER.strip() in schematic
     assert "devices/code_shown.sym" in schematic
+
+
+def test_layout_judge_requires_lvs_success_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    challenge = tmp_path / "challenges" / "layout"
+    reference = challenge / "reference"
+    reference.mkdir(parents=True)
+    (reference / "inverter.spice").write_text(".subckt inverter in out vdd vss\n.ends\n")
+    pdk = tmp_path / "pdk" / "ihp-sg13g2" / "libs.tech" / "klayout" / "tech"
+    for runner in (pdk / "drc" / "run_drc.py", pdk / "lvs" / "run_lvs.py"):
+        runner.parent.mkdir(parents=True, exist_ok=True)
+        runner.write_text("# runner\n")
+    macro = Path("/app/scripts/inspect-layout.rb")
+    original_is_file = Path.is_file
+    monkeypatch.setattr(
+        Path, "is_file", lambda self: True if self == macro else original_is_file(self)
+    )
+
+    def fake_run(
+        command: list[str], *_args: object, **_kwargs: object
+    ) -> subprocess.CompletedProcess:
+        values = {
+            part.split("=", 1)[0]: part.split("=", 1)[1]
+            for part in command
+            if "=" in part
+        }
+        if "output" in values:
+            Path(values["output"]).write_text(
+                "top_cell: inverter\narea_um2: 12.5\ncell_count: 1\n"
+            )
+        elif any("run_drc.py" in part for part in command):
+            run_dir = Path(
+                next(part.split("=", 1)[1] for part in command if part.startswith("--run_dir="))
+            )
+            run_dir.mkdir()
+            (run_dir / "result.lyrdb").write_text("result")
+        else:
+            run_dir = Path(
+                next(part.split("=", 1)[1] for part in command if part.startswith("--run_dir="))
+            )
+            run_dir.mkdir()
+            (run_dir / "result.lvsdb").write_text("result")
+            (run_dir / "result_extracted.cir").write_text("result")
+            (run_dir / "result.log").write_text("ERROR : Netlists don't match")
+        return subprocess.CompletedProcess(command, 0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = LayoutJudge(
+        challenges_path=tmp_path / "challenges", pdk_root=tmp_path / "pdk"
+    ).judge(
+        b"gds",
+        "inverter",
+        ["in", "out", "vdd", "vss"],
+        "layout",
+        {"reference_netlist": "reference/inverter.spice"},
+    )
+    assert result.accepted is False
+    assert "LVS mismatch" in result.message
+    assert result.measurements[-1].passed is False
+
+
+def test_layout_judge_summarizes_drc_failure() -> None:
+    output = """
+Rule M3Fil.b: 0 error(s)
+Rule LU.a: 1 error(s)
+Number of DRC errors for maximum rule set: 3
+ERROR | Violated rules are : {'LU.b', 'LU.a', 'M1.d'}
+"""
+
+    assert LayoutJudge._drc_failure(output) == (
+        "DRC failed with 3 violation(s): LU.a, LU.b, M1.d"
+    )
+
+
+def test_layout_judge_explains_mos_dimension_mismatch(tmp_path: Path) -> None:
+    reference = tmp_path / "inverter.spice"
+    reference.write_text(
+        ".subckt inverter in out vdd vss\n"
+        "MN out in vss vss sg13_lv_nmos W=0.74u L=0.13u\n"
+        "MP out in vdd vdd sg13_lv_pmos W=1.12u L=0.13u\n"
+        ".ends inverter\n"
+    )
+    extracted = (
+        ".SUBCKT inverter vss vdd in out\n"
+        "M$1 vdd in out vdd sg13_lv_pmos L=0.13u W=0.3u\n"
+        "M$2 vss in out vss sg13_lv_nmos L=0.13u W=0.15u\n"
+        ".ENDS inverter\n"
+    )
+
+    assert LayoutJudge._lvs_failure(
+        extracted, reference, ["in", "out", "vdd", "vss"]
+    ) == (
+        "LVS mismatch; extracted MOS dimensions: nmos W=0.15u L=0.13u, "
+        "pmos W=0.3u L=0.13u; required: nmos W=0.74u L=0.13u, "
+        "pmos W=1.12u L=0.13u"
+    )
+
+
+def test_layout_judge_reports_missing_pins_first(tmp_path: Path) -> None:
+    reference = tmp_path / "inverter.spice"
+    reference.write_text(".subckt inverter in out vdd vss\n.ends inverter\n")
+
+    assert LayoutJudge._lvs_failure(
+        ".subckt inverter in out vdd\n.ends inverter\n",
+        reference,
+        ["in", "out", "vdd", "vss"],
+    ) == "LVS mismatch; missing top-level pins: vss"

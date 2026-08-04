@@ -41,6 +41,6 @@
   </dl>
   {% endif %}
   {% endif %}
-  {% if submission.error_message %}<div class="alert">{{ submission.error_message }}</div>{% endif %}
+  {% if submission.error_message and (not submission.result_json or submission.error_message != submission.result_json.message) %}<div class="alert">{{ submission.error_message }}</div>{% endif %}
   {% if submission.status in ['queued', 'running'] %}<p class="muted">Judge worker is processing this design. This panel refreshes automatically.</p>{% endif %}
 </div>

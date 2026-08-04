@@ -1,8 +1,10 @@
-FROM docker.io/library/python:3.12-slim
+FROM docker.io/library/ubuntu:24.04
 
 ARG IHP_PDK_REV=8d3ee38d4540ed675d3ac08332a51f75258fc3a7
 ARG OPENVAF_VERSION=23_5_0
 ARG OPENVAF_SHA256=79c0e08ad948a7a9f460dc87be88b261bbd99b63a4038db3c64680189f44e4f0
+ARG KLAYOUT_VERSION=0.30.3
+ARG KLAYOUT_SHA256=baadaeadd36304309e9ef66922321d1cb32e4ae89bf22fdd4dec423427d85114
 
 LABEL org.opencontainers.image.title="LeetSpice" \
       org.opencontainers.image.description="Gamified analog circuit design platform"
@@ -10,11 +12,14 @@ LABEL org.opencontainers.image.title="LeetSpice" \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PATH="/home/leetspice/.local/bin:${PATH}"
+    DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC \
+    PATH="/opt/venv/bin:/home/leetspice/.local/bin:${PATH}"
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends --yes binutils ca-certificates curl git ngspice xschem \
+    && apt-get install --no-install-recommends --yes adduser binutils ca-certificates curl git ngspice python3 python3-tk python3-venv xschem \
     && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv \
     && addgroup --system leetspice \
     && adduser --system --ingroup leetspice --home /home/leetspice leetspice
 
@@ -27,6 +32,12 @@ COPY challenges ./challenges
 COPY scripts ./scripts
 
 RUN python -m pip install --no-cache-dir '.[eda]' \
+    && curl --fail --location "https://www.klayout.org/downloads/Ubuntu-24/klayout_${KLAYOUT_VERSION}-1_amd64.deb" --output /tmp/klayout.deb \
+    && echo "${KLAYOUT_SHA256}  /tmp/klayout.deb" | sha256sum --check \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes /tmp/klayout.deb \
+    && rm -rf /var/lib/apt/lists/* /tmp/klayout.deb \
+    && test "$(klayout -b -v)" = "KLayout ${KLAYOUT_VERSION}" \
     && curl --fail --location "https://openva.fra1.cdn.digitaloceanspaces.com/openvaf_${OPENVAF_VERSION}_linux_amd64.tar.gz" --output /tmp/openvaf.tar.gz \
     && echo "${OPENVAF_SHA256}  /tmp/openvaf.tar.gz" | sha256sum --check \
     && tar -xzf /tmp/openvaf.tar.gz -C /usr/local/bin \

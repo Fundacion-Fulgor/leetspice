@@ -18,10 +18,7 @@ from .web import router
 
 def _seed_demo_challenge() -> None:
     with db.SessionLocal() as session:
-        challenge = session.scalar(
-            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
-        )
-        values = {
+        netlist_values = {
             "title": "CMOS Inverter: First Switch",
             "summary": "Size an IHP SG13G2 CMOS inverter across process and temperature corners.",
             "description": (
@@ -38,19 +35,63 @@ def _seed_demo_challenge() -> None:
                 "XPMOS out in vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1\n"
                 ".ends inverter\n"
             ),
+            "submission_kind": "netlist",
+            "judge_backend": "cace",
+            "fixture_path": "demo-cmos-inverter",
+            "assets": [],
             "score_unit": "points",
             "lower_is_better": False,
             "is_active": True,
         }
-        if challenge is None:
-            challenge = Challenge(
-                slug="demo-cmos-inverter",
-                **values,
-            )
-            session.add(challenge)
-        else:
-            for name, value in values.items():
-                setattr(challenge, name, value)
+        layout_values = {
+            "title": "CMOS Inverter: Physical Layout",
+            "summary": "Lay out the SG13G2 inverter and minimize its DRC-clean, LVS-correct area.",
+            "description": (
+                "Create an IHP SG13G2 GDSII layout for the supplied inverter schematic. The top "
+                "cell must be named inverter and expose labeled in, out, vdd, and vss pins. The "
+                "judge runs the pinned IHP KLayout DRC deck without density checks, then performs "
+                "strict LVS against the server-owned reference netlist. Smaller valid layouts "
+                "score higher."
+            ),
+            "expected_subckt": "inverter",
+            "expected_pins": ["in", "out", "vdd", "vss"],
+            "starter_netlist": "",
+            "submission_kind": "gds",
+            "judge_backend": "klayout",
+            "submission_config": {"maximum_bytes": 8 * 1024 * 1024, "extensions": [".gds"]},
+            "judge_config": {
+                "reference_netlist": "reference/inverter.spice",
+                "drc_density": False,
+            },
+            "fixture_path": "demo-cmos-inverter-layout",
+            "assets": [
+                {
+                    "id": "schematic",
+                    "label": "Xschem schematic (.sch)",
+                    "path": "inverter.sch",
+                    "download_name": "inverter.sch",
+                },
+                {
+                    "id": "symbol",
+                    "label": "Xschem symbol (.sym)",
+                    "path": "inverter.sym",
+                    "download_name": "inverter.sym",
+                },
+            ],
+            "score_unit": "points",
+            "lower_is_better": False,
+            "is_active": True,
+        }
+        for slug, values in (
+            ("demo-cmos-inverter", netlist_values),
+            ("demo-cmos-inverter-layout", layout_values),
+        ):
+            challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if challenge is None:
+                session.add(Challenge(slug=slug, **values))
+            else:
+                for name, value in values.items():
+                    setattr(challenge, name, value)
         session.commit()
 
 
