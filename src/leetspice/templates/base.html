@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="LeetSpice analog circuit design challenges">
   <title>{% block title %}LeetSpice{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=2">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
 <body>
@@ -28,5 +28,30 @@
   </header>
   <main>{% block content %}{% endblock %}</main>
   <footer><span>SPICE IN / SIGNAL OUT</span><span>BUILD · MEASURE · ITERATE</span></footer>
+  <script>
+    function activateResultTab(tab) {
+      const tabs = [...tab.closest('[role="tablist"]').querySelectorAll(':scope > [role="tab"]')];
+      for (const item of tabs) {
+        const selected = item === tab;
+        item.setAttribute('aria-selected', selected);
+        item.tabIndex = selected ? 0 : -1;
+        document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+      }
+    }
+    document.addEventListener('click', (event) => {
+      const tab = event.target.closest('.pvt-results [role="tab"]');
+      if (tab) activateResultTab(tab);
+    });
+    document.addEventListener('keydown', (event) => {
+      const tab = event.target.closest('.pvt-results [role="tab"]');
+      if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      const tabs = [...tab.closest('[role="tablist"]').querySelectorAll(':scope > [role="tab"]')];
+      const index = tabs.indexOf(tab);
+      const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+      event.preventDefault();
+      activateResultTab(next);
+      next.focus();
+    });
+  </script>
 </body>
 </html>

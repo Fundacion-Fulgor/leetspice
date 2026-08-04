@@ -3,11 +3,43 @@
   {% if submission.score is not none %}<div class="result-score"><strong>{{ "%.6g"|format(submission.score) }}</strong><span>{{ submission.challenge.score_unit }}</span></div>{% endif %}
   {% if submission.result_json and submission.result_json.message %}<p>{{ submission.result_json.message }}</p>{% endif %}
   {% if submission.result_json and submission.result_json.measurements %}
+  {% if pvt_results %}
+  <div class="pvt-results">
+    <div class="result-tabs process-tabs" role="tablist" aria-label="Process corner">
+      {% for corner in pvt_results %}
+      {% set corner_id = "result-%s-%s"|format(submission.id, corner.name) %}
+      <button type="button" role="tab" id="{{ corner_id }}-tab" aria-controls="{{ corner_id }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}">{{ corner.name|upper }}</button>
+      {% endfor %}
+    </div>
+    {% for corner in pvt_results %}
+    {% set corner_id = "result-%s-%s"|format(submission.id, corner.name) %}
+    <section class="pvt-panel corner-panel" id="{{ corner_id }}" role="tabpanel" aria-labelledby="{{ corner_id }}-tab"{% if not loop.first %} hidden{% endif %}>
+      <div class="result-tabs temperature-tabs" role="tablist" aria-label="Temperature corner">
+        {% for temperature in corner.temperatures %}
+        {% set temperature_id = "%s-%sC"|format(corner_id, temperature.value) %}
+        <button type="button" role="tab" id="{{ temperature_id }}-tab" aria-controls="{{ temperature_id }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}">{{ temperature.value }} °C</button>
+        {% endfor %}
+      </div>
+      {% for temperature in corner.temperatures %}
+      {% set temperature_id = "%s-%sC"|format(corner_id, temperature.value) %}
+      <div class="pvt-panel temperature-panel" id="{{ temperature_id }}" role="tabpanel" aria-labelledby="{{ temperature_id }}-tab"{% if not loop.first %} hidden{% endif %}>
+        <dl class="measurements">
+          {% for measurement in temperature.measurements %}
+          <div class="{{ 'passed' if measurement.passed else 'failed' }}"><dt>{{ measurement.label }}</dt><dd>{{ measurement.value }} {{ measurement.unit }}</dd></div>
+          {% endfor %}
+        </dl>
+      </div>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </div>
+  {% else %}
   <dl class="measurements">
     {% for measurement in submission.result_json.measurements %}
     <div><dt>{{ measurement.name|replace('_', ' ') }}</dt><dd>{{ measurement.value }} {{ measurement.unit }}</dd></div>
     {% endfor %}
   </dl>
+  {% endif %}
   {% endif %}
   {% if submission.error_message %}<div class="alert">{{ submission.error_message }}</div>{% endif %}
   {% if submission.status in ['queued', 'running'] %}<p class="muted">Judge worker is processing this design. This panel refreshes automatically.</p>{% endif %}

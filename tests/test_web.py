@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from leetspice import db
-from leetspice.models import Submission, User
+from leetspice.models import Challenge, Submission, User
 
 
 def test_registration_login_logout_and_csrf(client, csrf, register):
@@ -77,6 +77,72 @@ def test_empty_submission_is_rejected(client, csrf, register):
         assert session.scalar(select(Submission)) is None
 
 
+def test_submission_groups_pvt_results_into_nested_tabs(client, register):
+    register()
+    measurements = [
+        {"name": "tphl_ff_125C", "value": 20.0, "unit": "ps", "passed": True},
+        {"name": "rise_time_ss_-40C", "value": 51.0, "unit": "ps", "passed": True},
+        {"name": "tphl_tt_27C", "value": 30.0, "unit": "ps", "passed": True},
+        {"name": "tphl_ss_27C", "value": 40.0, "unit": "ps", "passed": False},
+        {"name": "tphl_ss_-40C", "value": 42.0, "unit": "ps", "passed": True},
+    ]
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(
+            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
+        )
+        submission = Submission(
+            user_id=user.id,
+            challenge_id=challenge.id,
+            netlist="reference",
+            status="accepted",
+            score=25.0,
+            result_json={"message": "passed", "measurements": measurements},
+        )
+        session.add(submission)
+        session.commit()
+        submission_id = submission.id
+
+    for url in (f"/submissions/{submission_id}", f"/submissions/{submission_id}/status"):
+        response = client.get(url)
+        assert response.status_code == 200
+        assert response.text.index(">SS<") < response.text.index(">TT<")
+        assert response.text.index(">TT<") < response.text.index(">FF<")
+        assert response.text.index(">-40 °C<") < response.text.index(">27 °C<")
+        assert "rise time" in response.text
+        assert "rise time ss -40C" not in response.text
+        assert 'aria-selected="true" tabindex="0">SS</button>' in response.text
+        assert 'aria-selected="true" tabindex="0">-40 °C</button>' in response.text
+        assert 'class="failed"><dt>tphl</dt><dd>40.0 ps</dd>' in response.text
+
+
+def test_submission_keeps_flat_results_for_non_pvt_backend(client, register):
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(
+            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
+        )
+        submission = Submission(
+            user_id=user.id,
+            challenge_id=challenge.id,
+            netlist="reference",
+            status="accepted",
+            result_json={
+                "measurements": [
+                    {"name": "propagation_delay", "value": 10, "unit": "ps"}
+                ]
+            },
+        )
+        session.add(submission)
+        session.commit()
+        submission_id = submission.id
+
+    response = client.get(f"/submissions/{submission_id}")
+    assert "propagation delay" in response.text
+    assert 'aria-label="Process corner"' not in response.text
+
+
 def test_leaderboard_uses_each_users_best_accepted_score(client, register):
     register(email="first@example.com", name="First")
     register(email="second@example.com", name="Second")
@@ -130,6 +196,11 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
 
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_stylesheet_url_is_versioned(client):
+    response = client.get("/")
+    assert '/static/app.css?v=2' in response.text
 
 
 def test_demo_challenge_identifies_target_pdk(client):

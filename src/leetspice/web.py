@@ -1,5 +1,6 @@
 """Server-rendered application routes."""
 
+import re
 from collections.abc import Sequence
 from typing import Annotated
 
@@ -216,13 +217,46 @@ def _owned_submission(db: Session, submission_id: int, user: User | None) -> Sub
     return submission
 
 
+_PVT_MEASUREMENT = re.compile(
+    r"^(?P<metric>.+)_(?P<corner>ss|tt|ff)_(?P<temperature>-?\d+)C$"
+)
+
+
+def _pvt_results(submission: Submission) -> list[dict[str, object]]:
+    measurements = (submission.result_json or {}).get("measurements", [])
+    grouped: dict[str, dict[int, list[dict[str, object]]]] = {}
+    for measurement in measurements:
+        match = _PVT_MEASUREMENT.fullmatch(str(measurement.get("name", "")))
+        if match is None:
+            continue
+        item = dict(measurement)
+        item["label"] = match.group("metric").replace("_", " ")
+        corner = match.group("corner")
+        temperature = int(match.group("temperature"))
+        grouped.setdefault(corner, {}).setdefault(temperature, []).append(item)
+
+    return [
+        {
+            "name": corner,
+            "temperatures": [
+                {"value": temperature, "measurements": corner_results[temperature]}
+                for temperature in sorted(corner_results)
+            ],
+        }
+        for corner in ("ss", "tt", "ff")
+        if (corner_results := grouped.get(corner))
+    ]
+
+
 @router.get("/submissions/{submission_id}", response_class=HTMLResponse)
 def submission_detail(
     submission_id: int, request: Request, db: Annotated[Session, Depends(get_session)]
 ) -> HTMLResponse:
     submission = _owned_submission(db, submission_id, _current_user(request, db))
     return templates.TemplateResponse(
-        request, "submission.html", _context(request, db, submission=submission)
+        request,
+        "submission.html",
+        _context(request, db, submission=submission, pvt_results=_pvt_results(submission)),
     )
 
 
@@ -232,7 +266,9 @@ def submission_status(
 ) -> HTMLResponse:
     submission = _owned_submission(db, submission_id, _current_user(request, db))
     return templates.TemplateResponse(
-        request, "_submission_status.html", {"submission": submission}
+        request,
+        "_submission_status.html",
+        {"submission": submission, "pvt_results": _pvt_results(submission)},
     )
 
 
