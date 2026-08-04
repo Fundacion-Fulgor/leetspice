@@ -27,6 +27,8 @@ services:
       SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
       RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
       CHALLENGES_PATH: /app/challenges
+      PDK_ROOT: /opt/IHP-Open-PDK
+      PDK: ihp-sg13g2
     depends_on:
       db:
         condition: service_healthy
@@ -49,6 +51,9 @@ services:
       RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
       CHALLENGES_PATH: /app/challenges
       WORKER_DATA_DIR: /var/lib/leetspice
+      PDK_ROOT: /opt/IHP-Open-PDK
+      PDK: ihp-sg13g2
+      LEETSPICE_JUDGE_TIMEOUT: ${LEETSPICE_JUDGE_TIMEOUT:-120}
     depends_on:
       db:
         condition: service_healthy
