@@ -24,6 +24,11 @@ def test_validate_netlist_accepts_comments_continuations_and_case() -> None:
     assert validate_netlist(VALID_INVERTER, "INVERTER", ["IN", "OUT", "VDD", "VSS"]) is None
 
 
+def test_validate_netlist_accepts_ihp_gate_count_parameter() -> None:
+    netlist = VALID_INVERTER.replace("W=1u L=180n", "W=1u L=130n ng=2")
+    assert validate_netlist(netlist, "inverter", ["in", "out", "vdd", "vss"]) is None
+
+
 @pytest.mark.parametrize(
     ("netlist", "message"),
     [

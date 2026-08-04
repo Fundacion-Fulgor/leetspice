@@ -16,7 +16,7 @@ _NUMBER = re.compile(
     r"^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?(?:meg|mil|[tgkmunpf])?$",
     re.IGNORECASE,
 )
-_MOS_PARAMETERS = {"w", "l", "m", "nf", "ad", "as", "pd", "ps", "nrd", "nrs"}
+_MOS_PARAMETERS = {"w", "l", "m", "nf", "ng", "ad", "as", "pd", "ps", "nrd", "nrs"}
 _SG13G2_MOS_MODELS = {"sg13_lv_nmos", "sg13_lv_pmos"}
 
 
