@@ -18,29 +18,39 @@ from .web import router
 
 def _seed_demo_challenge() -> None:
     with db.SessionLocal() as session:
-        if session.scalar(select(Challenge.id).limit(1)) is not None:
-            return
-        session.add(
-            Challenge(
-                slug="demo-cmos-inverter",
-                title="CMOS Inverter: First Switch",
-                summary="Size a complementary MOS inverter for a clean digital transition.",
-                description=(
-                    "Build a CMOS inverter from complementary MOSFETs. The deterministic local "
-                    "judge rewards low delay, power, area, and unnecessary device complexity."
-                ),
-                expected_subckt="inverter",
-                expected_pins=["in", "out", "vdd", "vss"],
-                starter_netlist=(
-                    ".subckt inverter in out vdd vss\n"
-                    "M1 out in vss vss nmos W=1u L=0.18u\n"
-                    "M2 out in vdd vdd pmos W=2u L=0.18u\n"
-                    ".ends inverter\n"
-                ),
-                score_unit="points",
-                lower_is_better=False,
-            )
+        challenge = session.scalar(
+            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
         )
+        values = {
+            "title": "CMOS Inverter: First Switch",
+            "summary": "Size an IHP SG13G2-inspired CMOS inverter for a clean transition.",
+            "description": (
+                "Build a CMOS inverter using the interface and device dimensions expected for "
+                "an IHP SG13G2 design exercise. The PoC mock judge rewards low estimated delay, "
+                "power, area, and unnecessary device complexity. It does not currently load the "
+                "SG13G2 compact models, so results are educational and not PDK-accurate."
+            ),
+            "expected_subckt": "inverter",
+            "expected_pins": ["in", "out", "vdd", "vss"],
+            "starter_netlist": (
+                ".subckt inverter in out vdd vss\n"
+                "M1 out in vss vss nmos W=1u L=0.13u\n"
+                "M2 out in vdd vdd pmos W=2u L=0.13u\n"
+                ".ends inverter\n"
+            ),
+            "score_unit": "points",
+            "lower_is_better": False,
+            "is_active": True,
+        }
+        if challenge is None:
+            challenge = Challenge(
+                slug="demo-cmos-inverter",
+                **values,
+            )
+            session.add(challenge)
+        else:
+            for name, value in values.items():
+                setattr(challenge, name, value)
         session.commit()
 
 

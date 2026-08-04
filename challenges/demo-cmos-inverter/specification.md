@@ -1,15 +1,22 @@
 # CMOS Inverter: First Switch
 
+**Target process context:** IHP SG13G2 130 nm BiCMOS Open Source PDK.
+
 ## Goal
 
 Submit a CMOS inverter as exactly one `.subckt inverter in out vdd vss`. The PoC validator permits MOSFETs, resistors, and capacitors, but no testbench directives, sources, includes, models, or control scripts.
+
+This introductory challenge prepares the interface and sizing workflow for
+future SG13G2 challenges. The current mock judge does not load IHP compact
+models or process corners, and the optional ngspice path uses educational
+level-1 MOS models. Scores therefore are not PDK-accurate simulation results.
 
 ## Suggested dimensions
 
 | Parameter | Suggested range | Starter value |
 | --- | ---: | ---: |
-| `wn` | 0.22 µm to 20 µm | 1 µm |
-| `wp` | 0.22 µm to 40 µm | 2 µm |
+| `wn` | 0.13 µm to 20 µm | 1 µm |
+| `wp` | 0.13 µm to 40 µm | 2 µm |
 
 ## Public PoC checks
 

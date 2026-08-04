@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slug": "demo-cmos-inverter",
   "title": "CMOS Inverter: First Switch",
-  "summary": "Submit and size a complementary MOS inverter using a fixed subcircuit interface.",
+  "summary": "Submit and size an IHP SG13G2-inspired CMOS inverter using a fixed subcircuit interface.",
   "difficulty": "introductory",
   "attribution": "LeetSpice demo challenge, developed with support from Fundación Fulgor",
   "starter_file": "starter.cir",
@@ -10,6 +10,12 @@
   "circuit": {
     "simulator": "ngspice",
     "analysis": "mock-estimate",
+    "pdk": {
+      "name": "IHP SG13G2",
+      "status": "target context only",
+      "models_loaded": false,
+      "note": "The PoC judge uses deterministic estimates or educational level-1 models, not SG13G2 compact models."
+    },
     "interface": {
       "subckt": "inverter",
       "pins": ["in", "out", "vdd", "vss"]
@@ -28,7 +34,7 @@
     },
     "fixed_parameters": {
       "vdd_v": 1.8,
-      "channel_length_um": 0.18,
+      "channel_length_um": 0.13,
       "load_capacitance_pf": 0.02
     },
     "public_nodes": ["in", "out", "vdd", "vss"]

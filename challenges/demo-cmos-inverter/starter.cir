@@ -1,5 +1,6 @@
-* LeetSpice demo: submit exactly this subcircuit interface.
+* IHP SG13G2-inspired LeetSpice demo; the PoC does not load PDK models.
+* Submit exactly this subcircuit interface.
 .subckt inverter in out vdd vss
-MNMOS out in vss vss nmos W=1u L=0.18u
-MPMOS out in vdd vdd pmos W=2u L=0.18u
+MNMOS out in vss vss nmos W=1u L=0.13u
+MPMOS out in vdd vdd pmos W=2u L=0.13u
 .ends inverter

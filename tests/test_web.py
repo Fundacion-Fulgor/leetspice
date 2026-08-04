@@ -130,3 +130,9 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
 
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_demo_challenge_identifies_target_pdk(client):
+    response = client.get("/challenges/demo-cmos-inverter")
+    assert response.status_code == 200
+    assert "IHP SG13G2" in response.text
