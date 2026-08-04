@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="LeetSpice analog circuit design challenges">
+  <title>{% block title %}LeetSpice{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+<body>
+  <div class="scope-line" aria-hidden="true"></div>
+  <header class="site-header">
+    <a class="brand" href="/"><span>LEET</span>SPICE <small>LAB // 01</small></a>
+    <nav aria-label="Main navigation">
+      <a href="/">Challenges</a>
+      {% if current_user %}
+        <span class="identity">{{ current_user.display_name }}</span>
+        <form method="post" action="/logout" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="nav-button">Log out</button>
+        </form>
+      {% else %}
+        <a href="/login">Log in</a>
+        <a class="nav-cta" href="/register">Create account</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer><span>SPICE IN / SIGNAL OUT</span><span>BUILD · MEASURE · ITERATE</span></footer>
+</body>
+</html>

@@ -1,0 +1,63 @@
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-leetspice}
+      POSTGRES_USER: ${POSTGRES_USER:-leetspice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leetspice-local-only}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  web:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: localhost/leetspice:local
+    command: ["sh", "-c", "alembic upgrade head && exec python -m uvicorn leetspice.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
+      SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
+      RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
+      CHALLENGES_PATH: /app/challenges
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+
+  worker:
+    image: localhost/leetspice:local
+    command: ["leetspice-worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
+      SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
+      RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
+      CHALLENGES_PATH: /app/challenges
+      WORKER_DATA_DIR: /var/lib/leetspice
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - worker_data:/var/lib/leetspice
+
+volumes:
+  postgres_data:
+  worker_data:

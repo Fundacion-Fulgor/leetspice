@@ -1,0 +1,252 @@
+"""Server-rendered application routes."""
+
+from collections.abc import Sequence
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
+
+from .auth import hash_password, new_session, require_csrf, verify_password
+from .db import get_session
+from .models import Challenge, Submission, User
+
+router = APIRouter()
+templates = Jinja2Templates(
+    directory=str(__import__("pathlib").Path(__file__).parent / "templates")
+)
+
+
+def _current_user(request: Request, db: Session) -> User | None:
+    user_id = request.state.session.get("user_id")
+    return db.get(User, user_id) if user_id else None
+
+
+def _context(request: Request, db: Session, **values: object) -> dict[str, object]:
+    return {
+        "request": request,
+        "current_user": _current_user(request, db),
+        "csrf_token": request.state.session["csrf"],
+        **values,
+    }
+
+
+def _validate_netlist(netlist: str, challenge: Challenge) -> None:
+    if not netlist:
+        raise ValueError("Netlist cannot be empty")
+    try:
+        from leetspice.judge.validation import validate_netlist
+    except ImportError:
+        try:
+            from leetspice.judge.validator import validate_netlist
+        except ImportError:
+            # Web development remains usable before an optional judge package is installed.
+            return
+    validate_netlist(netlist, challenge.expected_subckt, challenge.expected_pins)
+
+
+def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, float]]:
+    aggregate = func.min if challenge.lower_is_better else func.max
+    best = (
+        select(Submission.user_id, aggregate(Submission.score).label("best_score"))
+        .where(
+            Submission.challenge_id == challenge.id,
+            Submission.status == "accepted",
+            Submission.score.is_not(None),
+        )
+        .group_by(Submission.user_id)
+        .subquery()
+    )
+    order = best.c.best_score.asc() if challenge.lower_is_better else best.c.best_score.desc()
+    return db.execute(
+        select(User, best.c.best_score).join(best, best.c.user_id == User.id).order_by(order)
+    ).all()
+
+
+@router.get("/", response_class=HTMLResponse)
+def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    challenges = db.scalars(
+        select(Challenge).where(Challenge.is_active.is_(True)).order_by(Challenge.id)
+    ).all()
+    return templates.TemplateResponse(
+        request, "catalog.html", _context(request, db, challenges=challenges)
+    )
+
+
+@router.get("/register", response_class=HTMLResponse)
+def register_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    return templates.TemplateResponse(request, "register.html", _context(request, db))
+
+
+@router.post("/register", response_class=HTMLResponse)
+def register(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    email: Annotated[str, Form()],
+    display_name: Annotated[str, Form()],
+    password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    normalized_email = email.strip().lower()
+    name = display_name.strip()
+    error = None
+    if "@" not in normalized_email or len(normalized_email) > 320:
+        error = "Enter a valid email address."
+    elif not name or len(name) > 80:
+        error = "Display name must be between 1 and 80 characters."
+    elif len(password) < 10:
+        error = "Password must be at least 10 characters."
+    elif db.scalar(select(User.id).where(User.email == normalized_email)):
+        error = "An account already exists for that email."
+    if error:
+        return templates.TemplateResponse(
+            request,
+            "register.html",
+            _context(request, db, error=error, email=normalized_email, display_name=name),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    user = User(email=normalized_email, display_name=name, password_hash=hash_password(password))
+    db.add(user)
+    db.commit()
+    request.state.session = new_session(user.id, request.app.state.settings)
+    return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    return templates.TemplateResponse(request, "login.html", _context(request, db))
+
+
+@router.post("/login", response_class=HTMLResponse)
+def login(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    email: Annotated[str, Form()],
+    password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = db.scalar(select(User).where(User.email == email.strip().lower()))
+    if user is None or not verify_password(user.password_hash, password):
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            _context(request, db, error="Invalid email or password.", email=email),
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    request.state.session = new_session(user.id, request.app.state.settings)
+    return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/logout")
+def logout(request: Request, csrf_token: Annotated[str, Form()]) -> RedirectResponse:
+    require_csrf(request, csrf_token)
+    request.state.session = new_session(None, request.app.state.settings)
+    return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/challenges/{slug}", response_class=HTMLResponse)
+def challenge_detail(
+    slug: str, request: Request, db: Annotated[Session, Depends(get_session)]
+) -> HTMLResponse:
+    challenge = db.scalar(
+        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+    )
+    if challenge is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request,
+        "challenge.html",
+        _context(request, db, challenge=challenge, leaders=_leaderboard(db, challenge)),
+    )
+
+
+@router.post("/challenges/{slug}/submit", response_class=HTMLResponse)
+def submit(
+    slug: str,
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    csrf_token: Annotated[str, Form()],
+    netlist: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    challenge = db.scalar(
+        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+    )
+    if challenge is None:
+        raise HTTPException(status_code=404)
+    try:
+        _validate_netlist(netlist, challenge)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "challenge.html",
+            _context(
+                request,
+                db,
+                challenge=challenge,
+                leaders=_leaderboard(db, challenge),
+                error=str(exc),
+                submitted_netlist=netlist,
+            ),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    submission = Submission(user_id=user.id, challenge_id=challenge.id, netlist=netlist)
+    db.add(submission)
+    db.commit()
+    return RedirectResponse(f"/submissions/{submission.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _owned_submission(db: Session, submission_id: int, user: User | None) -> Submission:
+    if user is None:
+        raise HTTPException(status_code=404)
+    submission = db.scalar(
+        select(Submission)
+        .options(selectinload(Submission.challenge), selectinload(Submission.judge_runs))
+        .where(Submission.id == submission_id, Submission.user_id == user.id)
+    )
+    if submission is None:
+        raise HTTPException(status_code=404)
+    return submission
+
+
+@router.get("/submissions/{submission_id}", response_class=HTMLResponse)
+def submission_detail(
+    submission_id: int, request: Request, db: Annotated[Session, Depends(get_session)]
+) -> HTMLResponse:
+    submission = _owned_submission(db, submission_id, _current_user(request, db))
+    return templates.TemplateResponse(
+        request, "submission.html", _context(request, db, submission=submission)
+    )
+
+
+@router.get("/submissions/{submission_id}/status", response_class=HTMLResponse)
+def submission_status(
+    submission_id: int, request: Request, db: Annotated[Session, Depends(get_session)]
+) -> HTMLResponse:
+    submission = _owned_submission(db, submission_id, _current_user(request, db))
+    return templates.TemplateResponse(
+        request, "_submission_status.html", {"submission": submission}
+    )
+
+
+@router.get("/challenges/{slug}/leaderboard", response_class=HTMLResponse)
+def leaderboard(
+    slug: str, request: Request, db: Annotated[Session, Depends(get_session)]
+) -> HTMLResponse:
+    challenge = db.scalar(
+        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+    )
+    if challenge is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request,
+        "leaderboard.html",
+        _context(request, db, challenge=challenge, leaders=_leaderboard(db, challenge)),
+    )

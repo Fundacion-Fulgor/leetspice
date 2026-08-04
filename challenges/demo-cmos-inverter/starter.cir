@@ -1,0 +1,5 @@
+* LeetSpice demo: submit exactly this subcircuit interface.
+.subckt inverter in out vdd vss
+MNMOS out in vss vss nmos W=1u L=0.18u
+MPMOS out in vdd vdd pmos W=2u L=0.18u
+.ends inverter

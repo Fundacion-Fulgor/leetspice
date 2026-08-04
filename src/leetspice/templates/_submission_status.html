@@ -1,0 +1,14 @@
+<div class="status-block" {% if submission.status in ['queued', 'running'] %}hx-get="/submissions/{{ submission.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="status-line"><span class="status-dot {{ submission.status }}"></span><span>{{ submission.status|upper }}</span></div>
+  {% if submission.score is not none %}<div class="result-score"><strong>{{ "%.6g"|format(submission.score) }}</strong><span>{{ submission.challenge.score_unit }}</span></div>{% endif %}
+  {% if submission.result_json and submission.result_json.message %}<p>{{ submission.result_json.message }}</p>{% endif %}
+  {% if submission.result_json and submission.result_json.measurements %}
+  <dl class="measurements">
+    {% for measurement in submission.result_json.measurements %}
+    <div><dt>{{ measurement.name|replace('_', ' ') }}</dt><dd>{{ measurement.value }} {{ measurement.unit }}</dd></div>
+    {% endfor %}
+  </dl>
+  {% endif %}
+  {% if submission.error_message %}<div class="alert">{{ submission.error_message }}</div>{% endif %}
+  {% if submission.status in ['queued', 'running'] %}<p class="muted">Judge worker is processing this design. This panel refreshes automatically.</p>{% endif %}
+</div>
