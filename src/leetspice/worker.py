@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from .judge import JudgeResult, MockJudge, NgspiceJudge
+from .judge import CaceJudge, JudgeResult, MockJudge, NgspiceJudge
 
 LOGGER = logging.getLogger("leetspice.worker")
 SESSION_MODULES = ("leetspice.database", "leetspice.db")
@@ -253,7 +253,7 @@ def discover_contract() -> tuple[Callable[[], Any], type[Any]]:
     return session_factory, model
 
 
-def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge:
+def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge | CaceJudge:
     selected = (
         name
         or os.getenv("LEETSPICE_JUDGE_BACKEND")
@@ -266,6 +266,8 @@ def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge:
             executable=os.getenv("LEETSPICE_NGSPICE", "ngspice"),
             timeout=float(os.getenv("LEETSPICE_JUDGE_TIMEOUT", "10")),
         )
+    if selected == "cace":
+        return CaceJudge(timeout=float(os.getenv("LEETSPICE_JUDGE_TIMEOUT", "120")))
     raise ValueError(f"unknown judge backend: {selected}")
 
 
@@ -296,7 +298,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--backend",
-        choices=("mock", "ngspice"),
+        choices=("mock", "ngspice", "cace"),
         help="override configured backend",
     )
     args = parser.parse_args(argv)

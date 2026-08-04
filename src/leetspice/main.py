@@ -23,19 +23,19 @@ def _seed_demo_challenge() -> None:
         )
         values = {
             "title": "CMOS Inverter: First Switch",
-            "summary": "Size an IHP SG13G2-inspired CMOS inverter for a clean transition.",
+            "summary": "Size an IHP SG13G2 CMOS inverter across process and temperature corners.",
             "description": (
-                "Build a CMOS inverter using the interface and device dimensions expected for "
-                "an IHP SG13G2 design exercise. The PoC mock judge rewards low estimated delay, "
-                "power, area, and unnecessary device complexity. It does not currently load the "
-                "SG13G2 compact models, so results are educational and not PDK-accurate."
+                "Build a 1.2 V CMOS inverter using IHP SG13G2 low-voltage MOS devices. CACE runs "
+                "ngspice transient verification at tt, ff, and ss process corners and -40, 27, "
+                "and 125 °C. The judge measures propagation delay, rise/fall time, average supply "
+                "current, and settled logic levels using pinned SG13G2 compact models."
             ),
             "expected_subckt": "inverter",
             "expected_pins": ["in", "out", "vdd", "vss"],
             "starter_netlist": (
                 ".subckt inverter in out vdd vss\n"
-                "M1 out in vss vss nmos W=1u L=0.13u\n"
-                "M2 out in vdd vdd pmos W=2u L=0.13u\n"
+                "XNMOS out in vss vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1\n"
+                "XPMOS out in vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1\n"
                 ".ends inverter\n"
             ),
             "score_unit": "points",

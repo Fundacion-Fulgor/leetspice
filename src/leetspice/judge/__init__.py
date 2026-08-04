@@ -10,5 +10,7 @@ __all__ = [
     "Measurement",
     "MockJudge",
     "NgspiceJudge",
+    "CaceJudge",
     "validate_netlist",
 ]
+from .cace import CaceJudge

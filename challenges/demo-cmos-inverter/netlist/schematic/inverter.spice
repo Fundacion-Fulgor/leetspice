@@ -1,5 +1,4 @@
-* IHP SG13G2 low-voltage CMOS inverter.
-* Models and analyses are included by the server-owned CACE testbench.
+* Reference submission used to qualify the SG13G2 CACE challenge.
 .subckt inverter in out vdd vss
 XNMOS out in vss vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
 XPMOS out in vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1

@@ -1,0 +1,108 @@
+name: inverter
+description: IHP SG13G2 low-voltage CMOS inverter timing characterization
+PDK: ihp-sg13g2
+cace_format: 5.2
+
+authorship:
+  designer: LeetSpice
+  institution: Fundación Fulgor
+  creation_date: August 4, 2026
+  license: Apache 2.0
+
+paths:
+  root: ..
+  schematic: xschem
+  netlist: netlist
+  runs: runs
+
+pins:
+  in:
+    description: Digital input
+    type: digital
+    direction: input
+  out:
+    description: Digital output
+    type: digital
+    direction: output
+  vdd:
+    description: 1.2 V low-voltage supply
+    type: power
+    direction: inout
+    Vmin: 1.08
+    Vmax: 1.32
+  vss:
+    description: Ground
+    type: ground
+    direction: inout
+
+default_conditions:
+  vdd:
+    description: Supply voltage
+    display: VDD
+    unit: V
+    typical: 1.2
+  load:
+    description: Output load capacitance
+    display: Cload
+    unit: fF
+    typical: 10
+  corner:
+    description: SG13G2 MOS process corner
+    display: Corner
+    typical: tt
+  temperature:
+    description: Junction temperature
+    display: Temperature
+    unit: °C
+    typical: 27
+
+parameters:
+  timing:
+    display: PVT transient timing
+    spec:
+      tphl:
+        display: High-to-low propagation delay
+        unit: s
+        maximum:
+          value: 500e-12
+      tplh:
+        display: Low-to-high propagation delay
+        unit: s
+        maximum:
+          value: 500e-12
+      rise_time:
+        display: 10-90% rise time
+        unit: s
+        maximum:
+          value: 500e-12
+      fall_time:
+        display: 90-10% fall time
+        unit: s
+        maximum:
+          value: 500e-12
+      average_current:
+        display: Average supply current
+        unit: A
+        maximum:
+          value: 100e-6
+      logic_low:
+        display: Settled logic-low output
+        unit: V
+        maximum:
+          value: 0.12
+      logic_high:
+        display: Settled logic-high output
+        unit: V
+        minimum:
+          value: 1.08
+    tool:
+      ngspice:
+        template: timing.sch
+        format: ascii
+        suffix: .data
+        variables: [tphl, tplh, rise_time, fall_time, average_current, logic_low, logic_high]
+    conditions:
+      corner:
+        enumerate: [tt, ff, ss]
+      temperature:
+        enumerate: [-40, 27, 125]

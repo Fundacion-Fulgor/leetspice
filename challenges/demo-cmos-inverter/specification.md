@@ -6,10 +6,10 @@
 
 Submit a CMOS inverter as exactly one `.subckt inverter in out vdd vss`. The PoC validator permits MOSFETs, resistors, and capacitors, but no testbench directives, sources, includes, models, or control scripts.
 
-This introductory challenge prepares the interface and sizing workflow for
-future SG13G2 challenges. The current mock judge does not load IHP compact
-models or process corners, and the optional ngspice path uses educational
-level-1 MOS models. Scores therefore are not PDK-accurate simulation results.
+The judge uses CACE 2.11.0 and ngspice with the SG13G2 low-voltage compact
+models pinned at PDK commit `8d3ee38d4540ed675d3ac08332a51f75258fc3a7`.
+It evaluates `tt`, `ff`, and `ss` process corners at -40, 27, and 125 °C with
+a 1.2 V supply and 10 fF output load.
 
 ## Suggested dimensions
 
@@ -20,10 +20,13 @@ level-1 MOS models. Scores therefore are not PDK-accurate simulation results.
 
 ## Public PoC checks
 
-- A PMOS must connect `out` to `vdd` and be controlled by `in`.
-- An NMOS must connect `out` to `vss` and be controlled by `in`.
-- The deterministic mock score estimates propagation delay, power, and device area.
+- `tPHL`, `tPLH`, 10-90% rise time, and 90-10% fall time must each be at most 500 ps.
+- Average supply current must be at most 100 µA.
+- Settled logic low must be at most 0.12 V and logic high at least 1.08 V.
+- Every limit must pass at all nine process/temperature combinations.
 
-The mock backend validates the product workflow only. It does not run SPICE and its score is not physical evidence. The optional experimental ngspice backend uses server-owned educational level-1 models, not a foundry PDK. No hidden process-corner checks are implied.
+The score is `1000 / worst propagation delay in ps`, so higher is better after
+all hard limits pass. This is schematic-level simulation, not post-layout
+signoff, mismatch, Monte Carlo, reliability, or manufacturability verification.
 
 Local development defaults to the mock runner. A mock pass demonstrates the submission workflow only and is not evidence that ngspice evaluated the circuit.

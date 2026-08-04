@@ -33,7 +33,7 @@
       }
     },
     "fixed_parameters": {
-      "vdd_v": 1.8,
+      "vdd_v": 1.2,
       "channel_length_um": 0.13,
       "load_capacitance_pf": 0.02
     },
