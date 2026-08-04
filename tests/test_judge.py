@@ -12,9 +12,9 @@ from leetspice.worker import configured_backend, process_one
 
 VALID_INVERTER = """* a small CMOS inverter
 .subckt inverter in out vdd vss
-M_P out in vdd vdd pmos
+X_P out in vdd vdd sg13_lv_pmos
 + W=2u L=180n
-M_N out in vss vss nmos W=1u L=180n ; inline comment
+X_N out in vss vss sg13_lv_nmos W=1u L=180n ; inline comment
 Cout out vss 5f
 .ends inverter
 """
@@ -33,7 +33,11 @@ def test_validate_netlist_accepts_comments_continuations_and_case() -> None:
         (".subckt inverter in out vdd vss\n.model nmos NMOS\n.ends\n", "directive"),
         (".subckt inverter in out vdd vss\nV1 vdd vss 1.8\n.ends\n", "not allowed"),
         (".subckt inverter in out vdd vss\nL1 out vss 1n\n.ends\n", "not allowed"),
-        (".subckt inverter in out vdd vss\nX1 in out child\n.ends\n", "not allowed"),
+        (".subckt inverter in out vdd vss\nX1 in out child\n.ends\n", "incomplete X"),
+        (
+            ".subckt inverter in out vdd vss\nX1 out in vss vss arbitrary W=1u L=130n\n.ends\n",
+            "unsupported SG13G2",
+        ),
         (".subckt inverter in out vdd vss\nM1 out in vss vss nmos\n", "complete"),
         (".subckt inverter in out vdd vss\n.ends\n", "at least one"),
         ("+ W=1u\n.subckt inverter in out vdd vss\n.ends\n", "continuation"),
@@ -92,7 +96,7 @@ def test_mock_judge_rejects_invalid_and_non_inverter_topologies() -> None:
     invalid = MockJudge().judge(".end\n", "inverter", ["in", "out", "vdd", "vss"])
     assert invalid == JudgeResult(False, 0.0, message="line 1: directive '.end' is not allowed")
 
-    wrong_gate = VALID_INVERTER.replace("M_N out in", "M_N out out")
+    wrong_gate = VALID_INVERTER.replace("X_N out in", "X_N out out")
     result = MockJudge().judge(wrong_gate, "inverter", ["in", "out", "vdd", "vss"])
     assert result.accepted is False
     assert result.score == 0

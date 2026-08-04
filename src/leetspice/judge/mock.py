@@ -61,7 +61,7 @@ class MockJudge:
             if line.startswith("."):
                 continue
             tokens = line.split()
-            if tokens[0][0].upper() == "M":
+            if tokens[0][0].upper() in {"M", "X"}:
                 mosfets.append((tokens, _parameters(tokens[6:])))
             elif tokens[0][0].upper() == "R":
                 resistance += _spice_number(tokens[3])

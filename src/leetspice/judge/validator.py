@@ -17,6 +17,7 @@ _NUMBER = re.compile(
     re.IGNORECASE,
 )
 _MOS_PARAMETERS = {"w", "l", "m", "nf", "ad", "as", "pd", "ps", "nrd", "nrs"}
+_SG13G2_MOS_MODELS = {"sg13_lv_nmos", "sg13_lv_pmos"}
 
 
 def _logical_lines(netlist: str) -> list[tuple[int, str]]:
@@ -58,10 +59,10 @@ def _validate_device(tokens: list[str], line_number: int) -> None:
     kind = tokens[0][0].upper()
     if not _IDENTIFIER.fullmatch(tokens[0]):
         raise ValueError(f"line {line_number}: invalid element name")
-    required = 6 if kind == "M" else 4
+    required = 6 if kind in {"M", "X"} else 4
     if len(tokens) < required:
         raise ValueError(f"line {line_number}: incomplete {kind} element")
-    node_tokens = tokens[1:5] if kind == "M" else tokens[1:3]
+    node_tokens = tokens[1:5] if kind in {"M", "X"} else tokens[1:3]
     if any(not _NODE.fullmatch(node) for node in node_tokens):
         raise ValueError(f"line {line_number}: invalid node name")
 
@@ -72,6 +73,8 @@ def _validate_device(tokens: list[str], line_number: int) -> None:
 
     if not _IDENTIFIER.fullmatch(tokens[5]):
         raise ValueError(f"line {line_number}: invalid MOS model name")
+    if kind == "X" and tokens[5].casefold() not in _SG13G2_MOS_MODELS:
+        raise ValueError(f"line {line_number}: unsupported SG13G2 device {tokens[5]!r}")
     seen_parameters: set[str] = set()
     for parameter in tokens[6:]:
         if parameter.count("=") != 1:
@@ -94,9 +97,9 @@ def validate_netlist(
 ) -> None:
     """Validate a submission, returning ``None`` or raising ``ValueError``.
 
-    The accepted language is one subcircuit containing only MOSFETs, resistors,
-    and capacitors. Models may be named by the challenge, but model definitions
-    and every other SPICE directive remain server-owned.
+    The accepted language is one subcircuit containing primitive MOSFETs,
+    resistors, capacitors, and the SG13G2 low-voltage MOS subcircuits. Model
+    definitions and every SPICE analysis directive remain server-owned.
     """
 
     if not isinstance(netlist, str):
@@ -164,7 +167,7 @@ def validate_netlist(
             raise ValueError(f"line {line_number}: content outside the subcircuit")
 
         kind = first[0].upper()
-        if kind not in {"M", "R", "C"}:
+        if kind not in {"M", "X", "R", "C"}:
             raise ValueError(f"line {line_number}: element type {first[0]!r} is not allowed")
         _validate_device(tokens, line_number)
         folded_name = first.casefold()
