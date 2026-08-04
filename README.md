@@ -34,6 +34,19 @@ Delete the PostgreSQL and worker volumes as well:
 podman compose down -v
 ```
 
+Changing `POSTGRES_USER`, `POSTGRES_PASSWORD`, or `POSTGRES_DB` in `.env` does
+not update an existing PostgreSQL volume. If the web logs report `password
+authentication failed` and the local PoC data can be discarded, recreate the
+volumes and start the stack again:
+
+```sh
+podman compose down -v
+podman compose up -d
+```
+
+Do not use `-v` when the database contains data that must be retained. Change
+the database role credentials explicitly or restore from a backup instead.
+
 Run only PostgreSQL for host-based Python development:
 
 ```sh
