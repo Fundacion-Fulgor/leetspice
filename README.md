@@ -1,8 +1,8 @@
 # LeetSpice
 
-LeetSpice is a work-in-progress platform for learning analog circuit design through small, testable challenges. The proof of concept uses FastAPI, PostgreSQL, and one persistent submission worker.
+LeetSpice is a Fundación Fulgor project for learning analog circuit design through small, testable challenges. It is a gateway for students to earn Fundación Fulgor scholarships: the highest-ranking students automatically earn scholarships. The proof of concept uses FastAPI, PostgreSQL, and one persistent submission worker.
 
-The project is developed with support from **Fundación Fulgor**.
+LeetSpice is a project from **Fundación Fulgor**.
 
 ## Current status
 
@@ -131,4 +131,4 @@ The intended PoC auth scope is local first-party accounts, password hashing, log
 
 ## License and attribution
 
-License terms have not yet been added to this scaffold. Do not infer a license from repository visibility. LeetSpice acknowledges **Fundación Fulgor** for its support of the project.
+License terms have not yet been added to this scaffold. Do not infer a license from repository visibility. LeetSpice is a **Fundación Fulgor** project.

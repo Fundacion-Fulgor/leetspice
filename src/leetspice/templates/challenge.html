@@ -10,6 +10,7 @@
     <div class="panel brief"><h2>Design brief</h2><p>{{ challenge.description }}</p><dl><dt>Track</dt><dd>{{ challenge.track }} · {{ challenge.difficulty }}</dd><dt>Verification</dt><dd>{% if challenge.judge_backend == 'profile' %}Structural profile{% elif challenge.judge_backend == 'klayout' %}KLayout DRC/LVS{% else %}CACE PVT{% endif %}</dd><dt>{% if challenge.submission_kind == 'gds' %}Required top cell{% else %}Required subcircuit{% endif %}</dt><dd>{{ challenge.expected_subckt }}</dd><dt>{% if challenge.submission_kind == 'gds' %}Required pins{% else %}Pin order{% endif %}</dt><dd>{{ challenge.expected_pins|join(' · ') }}</dd></dl>{% if challenge.assets %}<div class="challenge-assets"><span>DESIGN FILES</span>{% for asset in challenge.assets %}<a href="/challenges/{{ challenge.slug }}/assets/{{ asset.id }}">{{ asset.label }} →</a>{% endfor %}</div>{% endif %}</div>
     <div class="panel leaderboard-preview">
       <div class="panel-head"><h2>Leaderboard</h2><a href="/challenges/{{ challenge.slug }}/leaderboard">Full board →</a></div>
+      <p class="scholarship-note">LeetSpice rankings are the gateway to Fundación Fulgor scholarships. The highest-ranking students automatically earn scholarships.</p>
       <ol>{% for user, score in leaders[:5] %}<li><span>{{ user.display_name }}</span><strong>{{ "%.4g"|format(score) }} {{ challenge.score_unit }}</strong></li>{% else %}<li class="empty">No accepted designs yet. Set the reference.</li>{% endfor %}</ol>
     </div>
   </section>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="LeetSpice analog circuit design challenges">
   <title>{% block title %}LeetSpice{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=5">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=6">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
 <body>
@@ -15,7 +15,7 @@
       <a class="brand" href="/"><span>LEET</span>SPICE <small>LAB // 01</small></a>
       <a class="fulgor-lockup" href="https://www.fundacionfulgor.org.ar/sitio/" aria-label="Fundación Fulgor" rel="external">
         <img src="{{ url_for('static', path='/fulgor-mark.png') }}" alt="">
-        <span><small>SUPPORTED BY</small>FUNDACIÓN FULGOR</span>
+        <span><small>A PROJECT FROM</small>FUNDACIÓN FULGOR</span>
       </a>
     </div>
     <nav aria-label="Main navigation">
@@ -33,7 +33,7 @@
     </nav>
   </header>
   <main>{% block content %}{% endblock %}</main>
-  <footer><span>SPICE IN / SIGNAL OUT</span><a class="footer-fulgor" href="https://www.fundacionfulgor.org.ar/sitio/" rel="external"><img src="{{ url_for('static', path='/fulgor-mark.png') }}" alt="">Supported by Fundación Fulgor</a><span>BUILD · MEASURE · ITERATE</span></footer>
+  <footer><span>SPICE IN / SIGNAL OUT</span><a class="footer-fulgor" href="https://www.fundacionfulgor.org.ar/sitio/" rel="external"><img src="{{ url_for('static', path='/fulgor-mark.png') }}" alt="">A Fundación Fulgor project</a><span>BUILD · MEASURE · ITERATE</span></footer>
   <script>
     function activateResultTab(tab) {
       const tabs = [...tab.closest('[role="tablist"]').querySelectorAll(':scope > [role="tab"]')];

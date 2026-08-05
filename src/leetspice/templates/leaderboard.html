@@ -3,6 +3,7 @@
 {% block content %}
 <section class="challenge-title"><div><p class="eyebrow">PERFORMANCE INDEX</p><h1>{{ challenge.title }}</h1></div><a class="arrow-link" href="/challenges/{{ challenge.slug }}">Return to bench →</a></section>
 <section class="panel board"><div class="panel-head"><h2>Best accepted by designer</h2><span>{% if challenge.lower_is_better %}LOWER{% else %}HIGHER{% endif %} IS BETTER</span></div>
+  <p class="scholarship-note"><strong>Fundación Fulgor scholarship pathway.</strong> LeetSpice rankings identify the highest-ranking students, who automatically earn scholarships.</p>
   <ol>{% for user, score in leaders %}<li><span class="rank">{{ "%02d"|format(loop.index) }}</span><strong>{{ user.display_name }}</strong><span class="board-score">{{ "%.6g"|format(score) }} <small>{{ challenge.score_unit }}</small></span></li>{% else %}<li class="empty">No accepted submissions.</li>{% endfor %}</ol>
 </section>
 {% endblock %}
