@@ -5,7 +5,7 @@
   "summary": "Size an IHP SG13G2 CMOS inverter across process and temperature corners.",
   "track": "MOS Foundations",
   "difficulty": "introductory",
-  "attribution": "LeetSpice is a Fundación Fulgor project",
+  "attribution": "LeetSpice is a Fulgor Foundation project",
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
   "interface": {

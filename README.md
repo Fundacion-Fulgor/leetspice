@@ -1,8 +1,8 @@
 # LeetSpice
 
-LeetSpice is a Fundación Fulgor project for learning analog circuit design through small, testable challenges. It is a gateway for students to earn Fundación Fulgor scholarships: the highest-ranking students automatically earn scholarships. The proof of concept uses FastAPI, PostgreSQL, and one persistent submission worker.
+LeetSpice is a Fulgor Foundation project for learning analog circuit design through small, testable challenges. It is a gateway for students to earn Fundación Fulgor scholarships: the highest-ranking students automatically earn scholarships. The proof of concept uses FastAPI, PostgreSQL, and one persistent submission worker.
 
-LeetSpice is a project from **Fundación Fulgor**.
+LeetSpice is a **Fulgor Foundation** project.
 
 ## Current status
 
