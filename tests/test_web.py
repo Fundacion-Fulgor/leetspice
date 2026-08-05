@@ -196,7 +196,9 @@ def test_health(client):
 
 def test_stylesheet_url_is_versioned(client):
     response = client.get("/")
-    assert "/static/app.css?v=4" in response.text
+    assert "/static/app.css?v=5" in response.text
+    assert "Fundación Fulgor" in response.text
+    assert "/static/fulgor-mark.png" in response.text
 
 
 def test_demo_challenge_identifies_target_pdk(client):
