@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "slug": "mos-gmid",
+  "title": "MOS gm/ID Explorer",
+  "summary": "Design and optimize an IHP SG13G2 mos gm/id explorer across server-owned checks.",
+  "track": "MOS Foundations",
+  "difficulty": "introductory",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "mos_gmid",
+    "pins": [
+      "d",
+      "g",
+      "s",
+      "b"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "mos_gmid",
+    "family": "device"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

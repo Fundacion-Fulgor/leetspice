@@ -73,8 +73,14 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
     challenges = db.scalars(
         select(Challenge).where(Challenge.is_active.is_(True)).order_by(Challenge.id)
     ).all()
+    # Group challenges by track
+    tracks: dict[str, list[Challenge]] = {}
+    for c in challenges:
+        tracks.setdefault(c.track, []).append(c)
     return templates.TemplateResponse(
-        request, "catalog.html", _context(request, db, challenges=challenges)
+        request,
+        "catalog.html",
+        _context(request, db, tracks=tracks, challenges_count=len(challenges)),
     )
 
 
@@ -288,9 +294,7 @@ def _owned_submission(db: Session, submission_id: int, user: User | None) -> Sub
     return submission
 
 
-_PVT_MEASUREMENT = re.compile(
-    r"^(?P<metric>.+)_(?P<corner>ss|tt|ff)_(?P<temperature>-?\d+)C$"
-)
+_PVT_MEASUREMENT = re.compile(r"^(?P<metric>.+)_(?P<corner>ss|tt|ff)_(?P<temperature>-?\d+)C$")
 
 
 def _pvt_results(submission: Submission) -> list[dict[str, object]]:

@@ -34,9 +34,7 @@ def upgrade() -> None:
         "challenges", sa.Column("judge_config", sa.JSON(), nullable=False, server_default="{}")
     )
     op.add_column("challenges", sa.Column("fixture_path", sa.String(length=255), nullable=True))
-    op.add_column(
-        "challenges", sa.Column("assets", sa.JSON(), nullable=False, server_default="[]")
-    )
+    op.add_column("challenges", sa.Column("assets", sa.JSON(), nullable=False, server_default="[]"))
 
     op.add_column(
         "submissions",

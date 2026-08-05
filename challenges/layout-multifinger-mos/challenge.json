@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "slug": "layout-multifinger-mos",
+  "title": "Multifinger MOS Layout",
+  "summary": "Create a compact DRC-clean, LVS-correct multifinger mos layout in SG13G2.",
+  "track": "Physical Design",
+  "difficulty": "advanced",
+  "specification_file": "specification.md",
+  "interface": {
+    "top_cell": "multifinger_mos",
+    "pins": [
+      "d",
+      "g",
+      "s",
+      "b"
+    ]
+  },
+  "submission": {
+    "kind": "gds",
+    "maximum_bytes": 8388608,
+    "extensions": [
+      ".gds"
+    ]
+  },
+  "judge_backend": "klayout",
+  "judge_config": {
+    "reference_netlist": "reference/design.spice",
+    "drc_density": false
+  },
+  "assets": [
+    {
+      "id": "schematic",
+      "label": "Xschem starter schematic (.sch)",
+      "path": "starter.sch",
+      "download_name": "multifinger_mos.sch"
+    },
+    {
+      "id": "symbol",
+      "label": "Xschem symbol (.sym)",
+      "path": "starter.sym",
+      "download_name": "multifinger_mos.sym"
+    }
+  ],
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

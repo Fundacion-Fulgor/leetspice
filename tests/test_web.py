@@ -90,9 +90,7 @@ def test_submission_groups_pvt_results_into_nested_tabs(client, register):
     ]
     with db.SessionLocal() as session:
         user = session.scalar(select(User).where(User.email == "designer@example.com"))
-        challenge = session.scalar(
-            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
-        )
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
         submission = Submission(
             user_id=user.id,
             challenge_id=challenge.id,
@@ -122,18 +120,14 @@ def test_submission_keeps_flat_results_for_non_pvt_backend(client, register):
     register()
     with db.SessionLocal() as session:
         user = session.scalar(select(User).where(User.email == "designer@example.com"))
-        challenge = session.scalar(
-            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
-        )
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
         submission = Submission(
             user_id=user.id,
             challenge_id=challenge.id,
             netlist="reference",
             status="accepted",
             result_json={
-                "measurements": [
-                    {"name": "propagation_delay", "value": 10, "unit": "ps"}
-                ]
+                "measurements": [{"name": "propagation_delay", "value": 10, "unit": "ps"}]
             },
         )
         session.add(submission)
@@ -202,7 +196,7 @@ def test_health(client):
 
 def test_stylesheet_url_is_versioned(client):
     response = client.get("/")
-    assert '/static/app.css?v=3' in response.text
+    assert "/static/app.css?v=4" in response.text
 
 
 def test_demo_challenge_identifies_target_pdk(client):
@@ -238,9 +232,7 @@ def test_layout_challenge_upload_and_assets(client, csrf, register):
     assert sha256(payload).hexdigest() in detail.text
 
     with db.SessionLocal() as session:
-        submission = session.scalar(
-            select(Submission).where(Submission.submission_kind == "gds")
-        )
+        submission = session.scalar(select(Submission).where(Submission.submission_kind == "gds"))
         assert submission is not None
         assert submission.netlist is None
         assert submission.payload_binary == payload
@@ -283,3 +275,21 @@ def test_layout_starter_wires_touch_all_mos_terminals():
         "N 40 80 40 100 {lab=vss}",
     )
     assert all(wire in schematic for wire in expected_wires)
+
+
+def test_manifest_seeding_and_grouping(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "MOS Foundations" in response.text
+    assert "Physical Design" in response.text
+    assert "introductory" in response.text
+    with db.SessionLocal() as session:
+        challenges = session.scalars(select(Challenge)).all()
+        assert len(challenges) == 31
+        for c in challenges:
+            if c.slug == "demo-cmos-inverter":
+                assert c.difficulty == "introductory"
+                assert "wn" in c.description
+            elif c.slug == "demo-cmos-inverter-layout":
+                assert c.difficulty == "intermediate"
+                assert "DRC" in c.description

@@ -1,0 +1,8 @@
+.subckt five_transistor_ota inp inn out vdd vss
+XINP mirror inp tail vss sg13_lv_nmos W=4u L=0.5u ng=1 m=1
+XINN out inn tail vss sg13_lv_nmos W=4u L=0.5u ng=1 m=1
+XLP mirror mirror vdd vdd sg13_lv_pmos W=8u L=0.5u ng=1 m=1
+XLN out mirror vdd vdd sg13_lv_pmos W=8u L=0.5u ng=1 m=1
+XTAIL tail bias vss vss sg13_lv_nmos W=8u L=0.5u ng=1 m=1
+RBIAS vdd bias 30k
+.ends five_transistor_ota

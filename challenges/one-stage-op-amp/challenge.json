@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "slug": "one-stage-op-amp",
+  "title": "One-Stage Operational Amplifier",
+  "summary": "Design and optimize an IHP SG13G2 one-stage operational amplifier across server-owned checks.",
+  "track": "Op Amps",
+  "difficulty": "advanced",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "one_stage_op_amp",
+    "pins": [
+      "inp",
+      "inn",
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "one_stage_opamp",
+    "family": "ota"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

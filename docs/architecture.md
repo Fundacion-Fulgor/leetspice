@@ -9,7 +9,7 @@ browser/client
 FastAPI web  <---->  PostgreSQL  <---->  persistent worker
                                            |
                                            v
-                                  CACE/ngspice netlist judge
+                                   profile or CACE/netlist judge
                                   or KLayout DRC/LVS judge
 ```
 
@@ -30,7 +30,7 @@ The image includes ngspice, CACE, KLayout 0.30.3, and the pinned IHP SG13G2 PDK.
 
 ## Challenge fixtures
 
-Each challenge directory keeps public, seedable assets together:
+Each challenge directory is a strict manifest package. Application startup validates every package and aborts rather than silently skipping malformed entries:
 
 ```text
 challenges/<slug>/
@@ -42,7 +42,9 @@ challenges/<slug>/
   reference/
 ```
 
-Netlist submissions remain UTF-8 text. Layout submissions are bounded raw GDSII stored in PostgreSQL as binary data so web and worker need no shared upload filesystem. Challenges declare a submission kind, judge backend/configuration, fixture path, and public asset manifest. Asset downloads resolve manifest IDs beneath the configured fixture root and never accept arbitrary paths.
+Netlist submissions remain UTF-8 text. Layout submissions are bounded raw GDSII stored in PostgreSQL as binary data so web and worker need no shared upload filesystem. Challenges declare track, difficulty, interface, submission kind, judge backend/configuration, and public assets. Asset downloads resolve manifest IDs beneath the configured fixture root and never accept arbitrary paths.
+
+Electrical backends have two verification levels. The qualified inverter uses CACE and pinned SG13G2 compact models across nine PVT points. Library profile challenges enforce constrained syntax, required-pin connectivity, family-specific device counts and polarity mix, MOS sizing bounds, and compactness scoring. They intentionally do not claim analog performance simulation. Dedicated CACE/ngspice profiles can replace structural profiles package by package without changing submission or catalog schemas.
 
 The layout judge writes each GDS to a temporary workspace, requires exactly one server-configured top cell, runs the pinned IHP DRC wrapper with one process and no density checks, then runs strict LVS against a server-owned netlist. It requires the LVS database, extracted netlist, log, and explicit match marker. Temporary workspaces are removed after each run.
 

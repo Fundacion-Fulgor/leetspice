@@ -128,9 +128,7 @@ def test_ngspice_runs_only_assembled_testbench(monkeypatch: pytest.MonkeyPatch) 
         return subprocess.CompletedProcess(command, 0, "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = NgspiceJudge(timeout=3).judge(
-        VALID_INVERTER, "inverter", ["in", "out", "vdd", "vss"]
-    )
+    result = NgspiceJudge(timeout=3).judge(VALID_INVERTER, "inverter", ["in", "out", "vdd", "vss"])
 
     assert result.accepted is True
     assert observed["command"][1:3] == ["-b", "-o"]
@@ -142,9 +140,9 @@ def test_ngspice_rejects_direct_user_deck_and_handles_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     direct = NgspiceJudge(testbench_builder=lambda netlist, _name, _pins: netlist)
-    assert "directly" in direct.judge(
-        VALID_INVERTER, "inverter", ["in", "out", "vdd", "vss"]
-    ).message
+    assert (
+        "directly" in direct.judge(VALID_INVERTER, "inverter", ["in", "out", "vdd", "vss"]).message
+    )
 
     def timeout(*_args: object, **_kwargs: object) -> None:
         raise subprocess.TimeoutExpired("ngspice", 0.01)
@@ -297,15 +295,9 @@ def test_layout_judge_requires_lvs_success_marker(
     def fake_run(
         command: list[str], *_args: object, **_kwargs: object
     ) -> subprocess.CompletedProcess:
-        values = {
-            part.split("=", 1)[0]: part.split("=", 1)[1]
-            for part in command
-            if "=" in part
-        }
+        values = {part.split("=", 1)[0]: part.split("=", 1)[1] for part in command if "=" in part}
         if "output" in values:
-            Path(values["output"]).write_text(
-                "top_cell: inverter\narea_um2: 12.5\ncell_count: 1\n"
-            )
+            Path(values["output"]).write_text("top_cell: inverter\narea_um2: 12.5\ncell_count: 1\n")
         elif any("run_drc.py" in part for part in command):
             run_dir = Path(
                 next(part.split("=", 1)[1] for part in command if part.startswith("--run_dir="))
@@ -323,9 +315,7 @@ def test_layout_judge_requires_lvs_success_marker(
         return subprocess.CompletedProcess(command, 0, "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = LayoutJudge(
-        challenges_path=tmp_path / "challenges", pdk_root=tmp_path / "pdk"
-    ).judge(
+    result = LayoutJudge(challenges_path=tmp_path / "challenges", pdk_root=tmp_path / "pdk").judge(
         b"gds",
         "inverter",
         ["in", "out", "vdd", "vss"],
@@ -345,9 +335,7 @@ Number of DRC errors for maximum rule set: 3
 ERROR | Violated rules are : {'LU.b', 'LU.a', 'M1.d'}
 """
 
-    assert LayoutJudge._drc_failure(output) == (
-        "DRC failed with 3 violation(s): LU.a, LU.b, M1.d"
-    )
+    assert LayoutJudge._drc_failure(output) == ("DRC failed with 3 violation(s): LU.a, LU.b, M1.d")
 
 
 def test_layout_judge_explains_mos_dimension_mismatch(tmp_path: Path) -> None:
@@ -365,9 +353,7 @@ def test_layout_judge_explains_mos_dimension_mismatch(tmp_path: Path) -> None:
         ".ENDS inverter\n"
     )
 
-    assert LayoutJudge._lvs_failure(
-        extracted, reference, ["in", "out", "vdd", "vss"]
-    ) == (
+    assert LayoutJudge._lvs_failure(extracted, reference, ["in", "out", "vdd", "vss"]) == (
         "LVS mismatch; extracted MOS dimensions: nmos W=0.15u L=0.13u, "
         "pmos W=0.3u L=0.13u; required: nmos W=0.74u L=0.13u, "
         "pmos W=1.12u L=0.13u"
@@ -378,8 +364,11 @@ def test_layout_judge_reports_missing_pins_first(tmp_path: Path) -> None:
     reference = tmp_path / "inverter.spice"
     reference.write_text(".subckt inverter in out vdd vss\n.ends inverter\n")
 
-    assert LayoutJudge._lvs_failure(
-        ".subckt inverter in out vdd\n.ends inverter\n",
-        reference,
-        ["in", "out", "vdd", "vss"],
-    ) == "LVS mismatch; missing top-level pins: vss"
+    assert (
+        LayoutJudge._lvs_failure(
+            ".subckt inverter in out vdd\n.ends inverter\n",
+            reference,
+            ["in", "out", "vdd", "vss"],
+        )
+        == "LVS mismatch; missing top-level pins: vss"
+    )

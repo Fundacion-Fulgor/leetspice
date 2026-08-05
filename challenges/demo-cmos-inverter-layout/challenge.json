@@ -3,6 +3,17 @@
   "slug": "demo-cmos-inverter-layout",
   "title": "CMOS Inverter: Physical Layout",
   "summary": "Lay out the SG13G2 inverter and minimize its DRC-clean, LVS-correct area.",
+  "track": "Physical Design",
+  "difficulty": "intermediate",
+  "specification_file": "specification.md",
+  "judge_backend": "klayout",
+  "judge_config": {
+    "reference_netlist": "reference/inverter.spice",
+    "drc_density": false
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true,
   "submission": {
     "kind": "gds",
     "maximum_bytes": 8388608,
@@ -13,8 +24,8 @@
     "pins": ["in", "out", "vdd", "vss"]
   },
   "assets": [
-    {"id": "schematic", "path": "inverter.sch"},
-    {"id": "symbol", "path": "inverter.sym"}
+    {"id": "schematic", "label": "Xschem schematic (.sch)", "path": "inverter.sch", "download_name": "inverter.sch"},
+    {"id": "symbol", "label": "Xschem symbol (.sym)", "path": "inverter.sym", "download_name": "inverter.sym"}
   ],
   "verification": {
     "pdk": "IHP SG13G2",

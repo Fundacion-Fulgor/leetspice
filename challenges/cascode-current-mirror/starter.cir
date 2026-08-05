@@ -1,0 +1,6 @@
+.subckt cascode_current_mirror iref out vss
+XREF iref iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+XBIAS bias iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+XCAS out bias mid vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+XOUT mid iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+.ends cascode_current_mirror

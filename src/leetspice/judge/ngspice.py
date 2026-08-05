@@ -39,8 +39,7 @@ XDUT {nodes} {subckt}
 
 def _sanitize_output(output: str, limit: int = 8_192) -> str:
     cleaned = "".join(
-        character if character in "\n\t" or ord(character) >= 32 else "?"
-        for character in output
+        character if character in "\n\t" or ord(character) >= 32 else "?" for character in output
     )
     return cleaned[-limit:]
 

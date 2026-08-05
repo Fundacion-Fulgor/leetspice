@@ -1,0 +1,3 @@
+.subckt mos_gmid d g s b
+XMN d g s b sg13_lv_nmos W=2u L=0.26u ng=1 m=1
+.ends mos_gmid

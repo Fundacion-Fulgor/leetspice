@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "slug": "ring-oscillator",
+  "title": "Ring Oscillator",
+  "summary": "Design and optimize an IHP SG13G2 ring oscillator across server-owned checks.",
+  "track": "Dynamic Circuits",
+  "difficulty": "intermediate",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "ring_oscillator",
+    "pins": [
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "ring_oscillator",
+    "family": "oscillator"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

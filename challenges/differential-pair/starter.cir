@@ -1,0 +1,7 @@
+.subckt differential_pair inp inn outp outn vdd vss
+XINP outp inp tail vss sg13_lv_nmos W=4u L=0.5u ng=1 m=1
+XINN outn inn tail vss sg13_lv_nmos W=4u L=0.5u ng=1 m=1
+RTAIL tail vss 10k
+RLP vdd outp 20k
+RLN vdd outn 20k
+.ends differential_pair

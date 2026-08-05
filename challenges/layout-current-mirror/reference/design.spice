@@ -1,0 +1,4 @@
+.subckt current_mirror iref out vss
+M1 iref iref vss vss sg13_lv_nmos W=2u L=0.5u ng=2 m=1
+M2 out iref vss vss sg13_lv_nmos W=2u L=0.5u ng=2 m=1
+.ends current_mirror

@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "slug": "low-noise-front-end",
+  "title": "Low-Noise Front End",
+  "summary": "Design and optimize an IHP SG13G2 low-noise front end across server-owned checks.",
+  "track": "Capstones",
+  "difficulty": "capstone",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "low_noise_front_end",
+    "pins": [
+      "in",
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "low_noise_frontend",
+    "family": "amplifier"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

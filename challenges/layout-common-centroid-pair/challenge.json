@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "slug": "layout-common-centroid-pair",
+  "title": "Common-Centroid Pair Layout",
+  "summary": "Create a compact DRC-clean, LVS-correct common-centroid pair layout in SG13G2.",
+  "track": "Physical Design",
+  "difficulty": "advanced",
+  "specification_file": "specification.md",
+  "interface": {
+    "top_cell": "common_centroid_pair",
+    "pins": [
+      "inp",
+      "inn",
+      "outp",
+      "outn",
+      "tail",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "gds",
+    "maximum_bytes": 8388608,
+    "extensions": [
+      ".gds"
+    ]
+  },
+  "judge_backend": "klayout",
+  "judge_config": {
+    "reference_netlist": "reference/design.spice",
+    "drc_density": false
+  },
+  "assets": [
+    {
+      "id": "schematic",
+      "label": "Xschem starter schematic (.sch)",
+      "path": "starter.sch",
+      "download_name": "common_centroid_pair.sch"
+    },
+    {
+      "id": "symbol",
+      "label": "Xschem symbol (.sym)",
+      "path": "starter.sym",
+      "download_name": "common_centroid_pair.sym"
+    }
+  ],
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

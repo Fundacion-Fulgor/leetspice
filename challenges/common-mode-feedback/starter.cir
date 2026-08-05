@@ -1,0 +1,7 @@
+.subckt common_mode_feedback outp outn vcm ctrl vdd vss
+RSP outp sense 20k
+RSN outn sense 20k
+XERR ctrl sense vss vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+RREF vcm ctrl 20k
+XLOAD ctrl ctrl vdd vdd sg13_lv_pmos W=4u L=0.5u ng=1 m=1
+.ends common_mode_feedback

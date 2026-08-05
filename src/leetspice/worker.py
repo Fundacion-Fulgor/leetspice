@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from .judge import CaceJudge, JudgeResult, LayoutJudge, MockJudge, NgspiceJudge
+from .judge import CaceJudge, JudgeResult, LayoutJudge, MockJudge, NgspiceJudge, ProfileJudge
 
 LOGGER = logging.getLogger("leetspice.worker")
 SESSION_MODULES = ("leetspice.database", "leetspice.db")
@@ -122,6 +122,11 @@ def _judge(job: Any, backend: Any) -> tuple[JudgeResult, str]:
             dict(challenge.judge_config),
         )
         return result, type(layout_backend).__name__
+    if challenge is not None and getattr(challenge, "judge_backend", None) == "profile":
+        profile_backend = ProfileJudge()
+        netlist, subckt, pins = _payload(job)
+        result = profile_backend.judge(netlist, subckt, pins, dict(challenge.judge_config))
+        return result, type(profile_backend).__name__
     return backend.judge(*_payload(job)), type(backend).__name__
 
 
@@ -276,9 +281,7 @@ def discover_contract() -> tuple[Callable[[], Any], type[Any]]:
 
 def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge | CaceJudge:
     selected = (
-        name
-        or os.getenv("LEETSPICE_JUDGE_BACKEND")
-        or os.getenv("RUNNER_BACKEND", "mock")
+        name or os.getenv("LEETSPICE_JUDGE_BACKEND") or os.getenv("RUNNER_BACKEND", "mock")
     ).casefold()
     if selected == "mock":
         return MockJudge()

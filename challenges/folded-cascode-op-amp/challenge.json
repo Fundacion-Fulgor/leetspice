@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "slug": "folded-cascode-op-amp",
+  "title": "Folded-Cascode Op Amp",
+  "summary": "Design and optimize an IHP SG13G2 folded-cascode op amp across server-owned checks.",
+  "track": "Op Amps",
+  "difficulty": "advanced",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "folded_cascode_op_amp",
+    "pins": [
+      "inp",
+      "inn",
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "folded_cascode",
+    "family": "complex_opamp"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

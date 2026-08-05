@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "slug": "current-starved-vco",
+  "title": "Current-Starved VCO",
+  "summary": "Design and optimize an IHP SG13G2 current-starved vco across server-owned checks.",
+  "track": "Dynamic Circuits",
+  "difficulty": "advanced",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "current_starved_vco",
+    "pins": [
+      "vctrl",
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "vco",
+    "family": "oscillator_control"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "slug": "common-source",
+  "title": "Common-Source Amplifier",
+  "summary": "Design and optimize an IHP SG13G2 common-source amplifier across server-owned checks.",
+  "track": "Gain Stages",
+  "difficulty": "intermediate",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "common_source",
+    "pins": [
+      "in",
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "common_source",
+    "family": "amplifier"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

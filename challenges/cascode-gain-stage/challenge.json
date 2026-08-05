@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "slug": "cascode-gain-stage",
+  "title": "Cascode Gain Stage",
+  "summary": "Design and optimize an IHP SG13G2 cascode gain stage across server-owned checks.",
+  "track": "Gain Stages",
+  "difficulty": "intermediate",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "cascode_gain_stage",
+    "pins": [
+      "in",
+      "out",
+      "bias",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "cascode",
+    "family": "amplifier_bias"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

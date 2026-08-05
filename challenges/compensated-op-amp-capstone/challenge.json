@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "slug": "compensated-op-amp-capstone",
+  "title": "Compensated Op Amp Capstone",
+  "summary": "Design and optimize an IHP SG13G2 compensated op amp capstone across server-owned checks.",
+  "track": "Capstones",
+  "difficulty": "capstone",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "compensated_op_amp_capstone",
+    "pins": [
+      "inp",
+      "inn",
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "compensated_opamp",
+    "family": "complex_opamp"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

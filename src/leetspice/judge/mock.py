@@ -115,11 +115,7 @@ class MockJudge:
             0.0,
             min(
                 100.0,
-                100.0
-                - delay_ps * 0.45
-                - power_uw * 0.8
-                - area_um2 * 0.15
-                - complexity_penalty,
+                100.0 - delay_ps * 0.45 - power_uw * 0.8 - area_um2 * 0.15 - complexity_penalty,
             ),
         )
         measurements = (

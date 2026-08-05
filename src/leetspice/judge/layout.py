@@ -15,9 +15,7 @@ from .result import JudgeResult, Measurement
 MAX_GDS_BYTES = 8 * 1024 * 1024
 LVS_SUCCESS = "Congratulations! Netlists match."
 DRC_RULES_PATTERN = re.compile(r"Violated rules are\s*:\s*\{([^}]*)\}")
-DRC_COUNT_PATTERN = re.compile(
-    r"Number of DRC errors for maximum rule set:\s*(\d+)", re.IGNORECASE
-)
+DRC_COUNT_PATTERN = re.compile(r"Number of DRC errors for maximum rule set:\s*(\d+)", re.IGNORECASE)
 SUBCKT_PATTERN = re.compile(r"^\.subckt\s+\S+\s+(.+)$", re.IGNORECASE | re.MULTILINE)
 MOS_PATTERN = re.compile(
     r"^M\S+\s+(?:\S+\s+){4}(sg13_lv_[np]mos)\s+(.+)$",
@@ -194,9 +192,7 @@ class LayoutJudge:
         return f"DRC failed: {output[-2_048:]}"
 
     @classmethod
-    def _lvs_failure(
-        cls, extracted: str, reference: Path, expected_pins: list[str]
-    ) -> str:
+    def _lvs_failure(cls, extracted: str, reference: Path, expected_pins: list[str]) -> str:
         subckt_match = SUBCKT_PATTERN.search(extracted)
         extracted_pins = subckt_match.group(1).split() if subckt_match else []
         missing_pins = [pin for pin in expected_pins if pin not in extracted_pins]
@@ -226,7 +222,10 @@ class LayoutJudge:
 
     @staticmethod
     def _format_mos_dimensions(devices: list[tuple[str, str, str]]) -> str:
-        return ", ".join(
-            f"{model.removeprefix('sg13_lv_')} W={width} L={length}"
-            for model, width, length in devices
-        ) or "none"
+        return (
+            ", ".join(
+                f"{model.removeprefix('sg13_lv_')} W={width} L={length}"
+                for model, width, length in devices
+            )
+            or "none"
+        )

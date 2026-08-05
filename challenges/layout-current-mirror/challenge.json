@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "slug": "layout-current-mirror",
+  "title": "Matched Current Mirror Layout",
+  "summary": "Create a compact DRC-clean, LVS-correct matched current mirror layout in SG13G2.",
+  "track": "Physical Design",
+  "difficulty": "advanced",
+  "specification_file": "specification.md",
+  "interface": {
+    "top_cell": "current_mirror",
+    "pins": [
+      "iref",
+      "out",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "gds",
+    "maximum_bytes": 8388608,
+    "extensions": [
+      ".gds"
+    ]
+  },
+  "judge_backend": "klayout",
+  "judge_config": {
+    "reference_netlist": "reference/design.spice",
+    "drc_density": false
+  },
+  "assets": [
+    {
+      "id": "schematic",
+      "label": "Xschem starter schematic (.sch)",
+      "path": "starter.sch",
+      "download_name": "current_mirror.sch"
+    },
+    {
+      "id": "symbol",
+      "label": "Xschem symbol (.sym)",
+      "path": "starter.sym",
+      "download_name": "current_mirror.sym"
+    }
+  ],
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

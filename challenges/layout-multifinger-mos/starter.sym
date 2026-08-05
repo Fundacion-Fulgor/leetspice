@@ -1,0 +1,17 @@
+v {xschem version=3.4.4 file_version=1.2}
+G {}
+K {type=subcircuit
+format="@name @pinlist multifinger_mos"
+template="name=x1"
+}
+V {}
+S {}
+E {}
+L 4 -40 -40 40 -40 {}
+L 4 40 -40 40 40 {}
+L 4 40 40 -40 40 {}
+L 4 -40 40 -40 -40 {}
+B 5 -42.5 -32.5 -37.5 -27.5 {name=d dir=out}
+B 5 37.5 -12.5 42.5 -7.5 {name=g dir=in}
+B 5 -42.5 7.5 -37.5 12.5 {name=s dir=in}
+B 5 37.5 27.5 42.5 32.5 {name=b dir=in}

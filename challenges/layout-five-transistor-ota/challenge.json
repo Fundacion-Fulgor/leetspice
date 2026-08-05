@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "slug": "layout-five-transistor-ota",
+  "title": "Five-Transistor OTA Layout",
+  "summary": "Create a compact DRC-clean, LVS-correct five-transistor ota layout in SG13G2.",
+  "track": "Physical Design",
+  "difficulty": "advanced",
+  "specification_file": "specification.md",
+  "interface": {
+    "top_cell": "ota5",
+    "pins": [
+      "inp",
+      "inn",
+      "out",
+      "bias",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "gds",
+    "maximum_bytes": 8388608,
+    "extensions": [
+      ".gds"
+    ]
+  },
+  "judge_backend": "klayout",
+  "judge_config": {
+    "reference_netlist": "reference/design.spice",
+    "drc_density": false
+  },
+  "assets": [
+    {
+      "id": "schematic",
+      "label": "Xschem starter schematic (.sch)",
+      "path": "starter.sch",
+      "download_name": "ota5.sch"
+    },
+    {
+      "id": "symbol",
+      "label": "Xschem symbol (.sym)",
+      "path": "starter.sym",
+      "download_name": "ota5.sym"
+    }
+  ],
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

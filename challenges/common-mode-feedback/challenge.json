@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "slug": "common-mode-feedback",
+  "title": "Common-Mode Feedback",
+  "summary": "Design and optimize an IHP SG13G2 common-mode feedback across server-owned checks.",
+  "track": "Op Amps",
+  "difficulty": "advanced",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "common_mode_feedback",
+    "pins": [
+      "outp",
+      "outn",
+      "vcm",
+      "ctrl",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "cmfb",
+    "family": "cmfb"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

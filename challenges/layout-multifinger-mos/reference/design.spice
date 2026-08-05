@@ -1,0 +1,3 @@
+.subckt multifinger_mos d g s b
+M1 d g s b sg13_lv_nmos W=2u L=0.13u ng=4 m=1
+.ends multifinger_mos

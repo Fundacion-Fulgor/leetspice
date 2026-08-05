@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "slug": "source-follower",
+  "title": "Source Follower",
+  "summary": "Design and optimize an IHP SG13G2 source follower across server-owned checks.",
+  "track": "MOS Foundations",
+  "difficulty": "introductory",
+  "starter_file": "starter.cir",
+  "specification_file": "specification.md",
+  "interface": {
+    "subckt": "source_follower",
+    "pins": [
+      "in",
+      "out",
+      "vdd",
+      "vss"
+    ]
+  },
+  "submission": {
+    "kind": "netlist"
+  },
+  "judge_backend": "profile",
+  "judge_config": {
+    "profile": "source_follower",
+    "family": "source_follower"
+  },
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

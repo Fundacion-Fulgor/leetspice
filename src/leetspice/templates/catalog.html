@@ -8,16 +8,27 @@
   </div>
   <p class="hero-copy">Submit real SPICE netlists. Survive corner analysis. Climb the board by engineering a better tradeoff.</p>
 </section>
-<section class="section-head"><h2>Open benches</h2><span>{{ challenges|length }} ACTIVE</span></section>
-<div class="challenge-grid">
-  {% for challenge in challenges %}
-  <article class="challenge-card">
-    <div class="card-index">CH-{{ "%02d"|format(challenge.id) }}</div>
-    <h3><a href="/challenges/{{ challenge.slug }}">{{ challenge.title }}</a></h3>
-    <p>{{ challenge.summary }}</p>
-    <div class="card-meta"><span>OPTIMIZE</span><strong>{{ challenge.score_unit }}</strong></div>
-    <a class="arrow-link" href="/challenges/{{ challenge.slug }}">Enter challenge <span>→</span></a>
-  </article>
-  {% else %}<p>No active challenges yet.</p>{% endfor %}
+<section class="section-head"><h2>Open benches</h2><span>{{ challenges_count }} ACTIVE</span></section>
+
+{% for track, track_challenges in tracks.items() %}
+<div class="track-section">
+  <h3 class="track-title">{{ track }}</h3>
+  <div class="challenge-grid">
+    {% for challenge in track_challenges %}
+    <article class="challenge-card">
+      <div class="card-index">CH-{{ "%02d"|format(challenge.id) }}</div>
+      <h3><a href="/challenges/{{ challenge.slug }}">{{ challenge.title }}</a></h3>
+      <p>{{ challenge.summary }}</p>
+      <div class="card-meta">
+        <span>OPTIMIZE</span><strong>{{ challenge.score_unit }}</strong>
+        <span class="difficulty-badge difficulty-{{ challenge.difficulty }}">{{ challenge.difficulty }}</span>
+      </div>
+      <a class="arrow-link" href="/challenges/{{ challenge.slug }}">Enter challenge <span>→</span></a>
+    </article>
+    {% endfor %}
+  </div>
 </div>
+{% else %}
+<p>No active challenges yet.</p>
+{% endfor %}
 {% endblock %}
