@@ -17,6 +17,7 @@ IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.$-]*$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 BACKENDS = {"cace", "klayout", "profile"}
 KINDS = {"netlist", "gds"}
+DIFFICULTIES = {"introductory", "intermediate", "advanced", "capstone"}
 
 
 def _required_string(data: dict[str, Any], name: str, source: Path) -> str:
@@ -42,6 +43,15 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
     summary = _required_string(manifest, "summary", source)
     track = _required_string(manifest, "track", source)
     difficulty = _required_string(manifest, "difficulty", source)
+    if difficulty not in DIFFICULTIES:
+        raise ValueError(f"{source}: difficulty must be one of {sorted(DIFFICULTIES)}")
+    verification_version = manifest.get("verification_version")
+    if (
+        not isinstance(verification_version, int)
+        or isinstance(verification_version, bool)
+        or verification_version < 1
+    ):
+        raise ValueError(f"{source}: verification_version must be a positive integer")
     interface = manifest.get("interface")
     if not isinstance(interface, dict):
         raise ValueError(f"{source}: interface must be an object")
@@ -111,6 +121,7 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         "category": str(manifest.get("category", track)),
         "track": track,
         "difficulty": difficulty,
+        "verification_version": verification_version,
         "assets": assets,
         "score_unit": str(manifest.get("score_unit", "points")),
         "lower_is_better": bool(manifest.get("lower_is_better", False)),

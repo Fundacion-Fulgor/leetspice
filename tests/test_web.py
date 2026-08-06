@@ -190,6 +190,29 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
     assert ">3 <small>points" not in response.text
 
 
+def test_leaderboard_excludes_stale_verification_versions(client, register):
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
+        challenge.verification_version = 2
+        session.add(
+            Submission(
+                user_id=user.id,
+                challenge_id=challenge.id,
+                verification_version=1,
+                netlist="stale",
+                status="accepted",
+                score=99.0,
+            )
+        )
+        session.commit()
+
+    response = client.get("/challenges/demo-cmos-inverter/leaderboard")
+    assert response.status_code == 200
+    assert "No accepted submissions" in response.text
+
+
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 

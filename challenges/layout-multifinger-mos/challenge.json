@@ -5,6 +5,7 @@
   "summary": "Create a compact DRC-clean, LVS-correct multifinger mos layout in SG13G2.",
   "track": "Physical Design",
   "difficulty": "advanced",
+  "verification_version": 1,
   "specification_file": "specification.md",
   "interface": {
     "top_cell": "multifinger_mos",

@@ -5,6 +5,7 @@
   "summary": "Create a compact DRC-clean, LVS-correct common-centroid pair layout in SG13G2.",
   "track": "Physical Design",
   "difficulty": "advanced",
+  "verification_version": 1,
   "specification_file": "specification.md",
   "interface": {
     "top_cell": "common_centroid_pair",

@@ -5,6 +5,7 @@
   "summary": "Lay out the SG13G2 inverter and minimize its DRC-clean, LVS-correct area.",
   "track": "Physical Design",
   "difficulty": "intermediate",
+  "verification_version": 1,
   "specification_file": "specification.md",
   "judge_backend": "klayout",
   "judge_config": {

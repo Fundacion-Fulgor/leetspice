@@ -32,6 +32,7 @@ def test_challenge_library_is_complete_and_valid() -> None:
         tracks.add(values["track"])
         assert values["title"]
         assert values["description"]
+        assert values["verification_version"] >= 1
         if values["submission_kind"] == "netlist":
             validate_netlist(
                 values["starter_netlist"], values["expected_subckt"], values["expected_pins"]

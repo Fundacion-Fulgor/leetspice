@@ -5,6 +5,7 @@
   "summary": "Design and optimize an IHP SG13G2 one-stage operational amplifier across server-owned checks.",
   "track": "Op Amps",
   "difficulty": "advanced",
+  "verification_version": 1,
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
   "interface": {

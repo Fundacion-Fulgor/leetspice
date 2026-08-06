@@ -56,6 +56,7 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
         select(Submission.user_id, aggregate(Submission.score).label("best_score"))
         .where(
             Submission.challenge_id == challenge.id,
+            Submission.verification_version == challenge.verification_version,
             Submission.status == "accepted",
             Submission.score.is_not(None),
         )
@@ -244,6 +245,7 @@ async def submit(
             submission = Submission(
                 user_id=user.id,
                 challenge_id=challenge.id,
+                verification_version=challenge.verification_version,
                 submission_kind="gds",
                 payload_binary=payload,
                 original_filename=filename[:255],
@@ -257,6 +259,7 @@ async def submit(
             submission = Submission(
                 user_id=user.id,
                 challenge_id=challenge.id,
+                verification_version=challenge.verification_version,
                 submission_kind="netlist",
                 netlist=netlist,
                 payload_size=len(encoded),
