@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from string import Template
 
@@ -99,6 +100,7 @@ class CharacterizationJudge:
         self, definition: CharacterizationDefinition, netlist: str
     ) -> list[Measurement]:
         collected: list[Measurement] = []
+        deadline = time.monotonic() + definition.total_timeout
         with tempfile.TemporaryDirectory(prefix="leetspice-ngspice-") as directory:
             root = Path(directory)
             for test in definition.tests:
@@ -125,6 +127,11 @@ class CharacterizationJudge:
                         ) from error
                     deck_path = run / "testbench.cir"
                     deck_path.write_text(deck, encoding="utf-8")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(
+                            "ngspice characterization", definition.total_timeout
+                        )
                     completed = subprocess.run(
                         [self.executable, "-b", "-o", "ngspice.log", deck_path.name],
                         cwd=run,
@@ -132,7 +139,7 @@ class CharacterizationJudge:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
-                        timeout=test.timeout,
+                        timeout=min(test.timeout, remaining),
                         check=False,
                         env={
                             **os.environ,

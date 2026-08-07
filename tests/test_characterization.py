@@ -178,6 +178,8 @@ def test_version_two_definition_parses_multi_objective_score(tmp_path: Path) -> 
     definition = load_definition(root, "judge/definition.yaml")
 
     assert definition.version == 2
+    assert definition.maximum_runs == 64
+    assert definition.total_timeout == 300
     assert [objective.measurement for objective in definition.score.objectives] == [
         "gain",
         "current",
@@ -260,3 +262,48 @@ def test_version_two_nominal_aggregation_requires_unique_tt_27c(tmp_path: Path) 
     ]
     with pytest.raises(ValueError, match="exactly one"):
         CharacterizationJudge._score(definition, measurements)
+
+
+def test_definition_enforces_aggregate_execution_limits(tmp_path: Path) -> None:
+    definition = V2_DEFINITION.replace(
+        "conditions:\n", "execution: {maximum_runs: 3, total_timeout: 12}\nconditions:\n"
+    )
+    root = package(tmp_path, definition)
+    with pytest.raises(ValueError, match="4 runs"):
+        load_definition(root, "judge/definition.yaml")
+
+    definition = definition.replace("maximum_runs: 3", "maximum_runs: 4")
+    parsed = load_definition(package(tmp_path / "valid", definition), "judge/definition.yaml")
+    assert parsed.maximum_runs == 4
+    assert parsed.total_timeout == 12
+
+
+def test_characterization_enforces_total_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    definition = V2_DEFINITION.replace(
+        "conditions:\n", "execution: {maximum_runs: 4, total_timeout: 0.001}\nconditions:\n"
+    )
+    package(tmp_path, definition)
+    pdk_root = pdk(tmp_path)
+    monkeypatch.setattr("leetspice.judge.characterization.time.monotonic", lambda: 1.0)
+    loaded = load_definition(tmp_path / "challenges/test", "judge/definition.yaml")
+    loaded = type(loaded)(
+        loaded.version,
+        loaded.maximum_runs,
+        -1,
+        loaded.tests,
+        loaded.score,
+    )
+    monkeypatch.setattr("leetspice.judge.characterization.load_definition", lambda *_args: loaded)
+    result = CharacterizationJudge(
+        challenges_path=tmp_path / "challenges", pdk_root=pdk_root
+    ).judge(
+        NETLIST,
+        "dut",
+        ["in", "out", "vdd", "vss"],
+        "test",
+        {"definition": "judge/definition.yaml"},
+    )
+    assert not result.accepted
+    assert "timed out" in result.message

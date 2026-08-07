@@ -54,6 +54,8 @@ class ScoreDefinition:
 @dataclass(frozen=True, slots=True)
 class CharacterizationDefinition:
     version: int
+    maximum_runs: int
+    total_timeout: float
     tests: tuple[TestDefinition, ...]
     score: ScoreDefinition
 
@@ -95,6 +97,20 @@ def load_definition(root: Path, relative: str) -> CharacterizationDefinition:
     if not isinstance(data, dict) or data.get("version") not in {1, 2}:
         raise ValueError("characterization definition version must be 1 or 2")
     version = data["version"]
+    execution = data.get("execution", {})
+    if not isinstance(execution, dict):
+        raise ValueError("execution must be an object")
+    maximum_runs = execution.get("maximum_runs", 64)
+    if (
+        not isinstance(maximum_runs, int)
+        or isinstance(maximum_runs, bool)
+        or maximum_runs < 1
+        or maximum_runs > 256
+    ):
+        raise ValueError("execution maximum_runs must be an integer from 1 to 256")
+    total_timeout = _number(
+        execution.get("total_timeout", 300), "execution total_timeout", positive=True
+    )
 
     conditions = data.get("conditions", {})
     if not isinstance(conditions, dict):
@@ -216,4 +232,9 @@ def load_definition(root: Path, relative: str) -> CharacterizationDefinition:
                 ScoreObjective(measurement, direction, aggregation, normalization, weight, target)
             )
         score = ScoreDefinition(objectives=tuple(objectives))
-    return CharacterizationDefinition(version, tuple(tests), score)
+    run_count = sum(math.prod(len(values) for values in test.sweep.values()) for test in tests)
+    if run_count > maximum_runs:
+        raise ValueError(
+            f"characterization expands to {run_count} runs, exceeding maximum_runs {maximum_runs}"
+        )
+    return CharacterizationDefinition(version, maximum_runs, total_timeout, tuple(tests), score)
