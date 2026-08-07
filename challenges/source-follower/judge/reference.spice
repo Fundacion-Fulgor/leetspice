@@ -1,4 +1,4 @@
 .subckt source_follower in out vdd vss
-XMN vdd in out vss sg13_lv_nmos W=4u L=0.26u ng=1 m=1
-RBIAS out vss 20k
+XMN vdd in out vss sg13_lv_nmos W=5u L=0.13u ng=1 m=1
+RBIAS out vss 10k
 .ends source_follower

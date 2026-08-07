@@ -1,11 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "slug": "demo-cmos-inverter",
   "title": "CMOS Inverter: First Switch",
   "summary": "Size an IHP SG13G2 CMOS inverter across process and temperature corners.",
   "track": "MOS Foundations",
   "difficulty": "introductory",
-  "verification_version": 2,
+  "verification_version": 3,
+  "curriculum_order": 40,
+  "prerequisites": ["mos-efficiency-sizing"],
+  "is_ranked": true,
   "attribution": "LeetSpice is a Fulgor Foundation project",
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
@@ -18,59 +21,5 @@
   "judge_config": {"definition": "judge/definition.yaml"},
   "score_unit": "points",
   "lower_is_better": false,
-  "is_active": true,
-  "circuit": {
-    "simulator": "ngspice",
-    "analysis": "mock-estimate",
-    "pdk": {
-      "name": "IHP SG13G2",
-      "status": "target context only",
-      "models_loaded": false,
-      "note": "The PoC judge uses deterministic estimates or educational level-1 models, not SG13G2 compact models."
-    },
-    "interface": {
-      "subckt": "inverter",
-      "pins": ["in", "out", "vdd", "vss"]
-    },
-    "editable_parameters": {
-      "wn_um": {
-        "minimum": 0.22,
-        "maximum": 20.0,
-        "default": 1.0
-      },
-      "wp_um": {
-        "minimum": 0.22,
-        "maximum": 40.0,
-        "default": 2.0
-      }
-    },
-    "fixed_parameters": {
-      "vdd_v": 1.2,
-      "channel_length_um": 0.13,
-      "load_capacitance_pf": 0.02
-    },
-    "public_nodes": ["in", "out", "vdd", "vss"]
-  },
-  "checks": [
-    {
-      "id": "topology",
-      "description": "Complementary pull-up and pull-down devices use the required pins.",
-      "measurement": "validated CMOS inverter topology",
-      "operator": "equals",
-      "target": 1,
-      "unit": "boolean"
-    },
-    {
-      "id": "score",
-      "description": "Deterministic estimate balancing delay, power, and area.",
-      "measurement": "mock score",
-      "operator": "maximize",
-      "target": 0,
-      "unit": "points"
-    }
-  ],
-  "limits": {
-    "simulation_timeout_seconds": 5,
-    "maximum_output_bytes": 262144
-  }
+  "is_active": true
 }

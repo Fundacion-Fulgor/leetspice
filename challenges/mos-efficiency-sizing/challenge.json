@@ -1,28 +1,18 @@
 {
   "schema_version": 2,
-  "slug": "mos-gmid",
-  "title": "MOS gm/ID Characterization Lab",
-  "summary": "Compare transconductance efficiency at three inversion levels.",
+  "slug": "mos-efficiency-sizing",
+  "title": "MOS Efficiency Sizing",
+  "summary": "Choose one NMOS geometry that balances current accuracy, gm/ID, and intrinsic gain.",
   "track": "MOS Foundations",
   "difficulty": "introductory",
-  "verification_version": 3,
-  "curriculum_order": 20,
-  "prerequisites": ["mos-operating-point"],
-  "is_ranked": false,
+  "verification_version": 1,
+  "curriculum_order": 30,
+  "prerequisites": ["mos-gmid"],
+  "is_ranked": true,
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
-  "interface": {
-    "subckt": "mos_gmid",
-    "pins": [
-      "d",
-      "g",
-      "s",
-      "b"
-    ]
-  },
-  "submission": {
-    "kind": "netlist"
-  },
+  "interface": {"subckt": "mos_efficiency", "pins": ["d", "g", "s", "b"]},
+  "submission": {"kind": "netlist"},
   "judge_backend": "characterization",
   "judge_config": {
     "definition": "judge/definition.yaml",

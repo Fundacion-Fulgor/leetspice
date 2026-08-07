@@ -1,0 +1,4 @@
+.subckt source_follower in out vdd vss
+RUP vdd out 100k
+RDOWN out vss 100k
+.ends source_follower

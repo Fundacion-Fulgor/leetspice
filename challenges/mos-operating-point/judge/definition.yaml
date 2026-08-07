@@ -1,4 +1,4 @@
-version: 1
+version: 2
 conditions:
   corner:
   - tt
@@ -14,9 +14,26 @@ tests:
   measurements:
   - name: drain_current
     unit: A
-    minimum: 1.0e-09
-    maximum: 0.02
+    minimum: 1.0e-07
+    maximum: 0.005
+  - name: transconductance
+    unit: S
+    minimum: 1.0e-08
+  - name: output_conductance
+    unit: S
+    minimum: 1.0e-10
+  - name: output_resistance
+    unit: ohm
+    minimum: 1.0
+  - name: gmid
+    unit: 1/V
+    minimum: 0.1
+  - name: intrinsic_gain
+    unit: V/V
+    minimum: 1.0
 score:
-  strategy: maximize_minimum
-  measurement: drain_current
-  scale: 1000000.0
+  objectives:
+  - measurement: intrinsic_gain
+    direction: maximize
+    aggregation: mean
+    normalization: 10.0

@@ -15,6 +15,7 @@ from leetspice.judge import (
     NgspiceJudge,
     validate_netlist,
 )
+from leetspice.judge.validator import validate_structure
 from leetspice.worker import configured_backend, process_one
 
 VALID_INVERTER = """* a small CMOS inverter
@@ -86,6 +87,24 @@ def test_validate_netlist_enforces_device_and_size_limits() -> None:
         )
     with pytest.raises(ValueError, match="65536 bytes"):
         validate_netlist("*" + "x" * 65536, "inverter", ["in", "out", "vdd", "vss"])
+
+
+def test_validate_structure_enforces_declared_device_rules() -> None:
+    one_nmos = ".subckt device d g s b\nX1 d g s b sg13_lv_nmos W=1u L=130n\n.ends\n"
+    validate_structure(
+        one_nmos,
+        {
+            "exact_device_count": 1,
+            "allowed_kinds": ["X"],
+            "allowed_models": ["sg13_lv_nmos"],
+        },
+    )
+    with pytest.raises(ValueError, match="exactly 2"):
+        validate_structure(one_nmos, {"exact_device_count": 2})
+    with pytest.raises(ValueError, match="device type"):
+        validate_structure(one_nmos, {"allowed_kinds": ["R"]})
+    with pytest.raises(ValueError, match="MOS model"):
+        validate_structure(one_nmos, {"allowed_models": ["sg13_lv_pmos"]})
 
 
 def test_mock_judge_is_deterministic_and_serializable() -> None:

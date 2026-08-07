@@ -1,15 +1,38 @@
 .lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
 .include submission.spice
 .temp ${temperature}
-VD d 0 1.0
-VG g 0 0.7
-VS s 0 0
-VB b 0 0
-XDUT d g s b mos_gmid
+VDW0 dw0 0 0.9
+VGW0 gw0 0 0.45
+VDW1 dw1 0 0.9
+VGW1 gw1 0 0.451
+VDM0 dm0 0 0.9
+VGM0 gm0 0 0.60
+VDM1 dm1 0 0.9
+VGM1 gm1 0 0.601
+VDS0 ds0 0 0.9
+VGS0 gs0 0 0.80
+VDS1 ds1 0 0.9
+VGS1 gs1 0 0.801
+XW0 dw0 gw0 0 0 mos_gmid
+XW1 dw1 gw1 0 0 mos_gmid
+XM0 dm0 gm0 0 0 mos_gmid
+XM1 dm1 gm1 0 0 mos_gmid
+XS0 ds0 gs0 0 0 mos_gmid
+XS1 ds1 gs1 0 0 mos_gmid
 .control
 op
-let drain_current=abs(i(VD))
-echo drain_current $$&drain_current > results.data
+let weak_current=abs(i(VDW0))
+let moderate_current=abs(i(VDM0))
+let strong_current=abs(i(VDS0))
+let weak_gmid=(abs(i(VDW1))-weak_current)/0.001/max(weak_current,1e-15)
+let moderate_gmid=(abs(i(VDM1))-moderate_current)/0.001/max(moderate_current,1e-15)
+let strong_gmid=(abs(i(VDS1))-strong_current)/0.001/max(strong_current,1e-15)
+echo weak_current $$&weak_current > results.data
+echo moderate_current $$&moderate_current >> results.data
+echo strong_current $$&strong_current >> results.data
+echo weak_gmid $$&weak_gmid >> results.data
+echo moderate_gmid $$&moderate_gmid >> results.data
+echo strong_gmid $$&strong_gmid >> results.data
 quit
 .endc
 .end

@@ -1,17 +1,33 @@
 .lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
 .include submission.spice
 .temp ${temperature}
-VIREF iref 0 0.75
-VOUT out 0 1.0
-XDUT iref out 0 basic_current_mirror
+IREFL 0 irefl 50u
+VOUTL outl 0 0.20
+XDUTL irefl outl 0 basic_current_mirror
+IREFM 0 irefm 50u
+VOUTM outm 0 0.60
+XDUTM irefm outm 0 basic_current_mirror
+IREFH 0 irefh 50u
+VOUTH outh 0 1.00
+XDUTH irefh outh 0 basic_current_mirror
+IREFD 0 irefd 50u
+VOUTD outd 0 1.001
+XDUTD irefd outd 0 basic_current_mirror
 .control
 op
-let reference_current=abs(i(VIREF))
-let output_current=abs(i(VOUT))
-let current_error=abs(output_current-reference_current)/max(reference_current,1e-15)
-echo reference_current $$&reference_current > results.data
-echo output_current $$&output_current >> results.data
+let low_current=abs(i(VOUTL))
+let mid_current=abs(i(VOUTM))
+let high_current=abs(i(VOUTH))
+let low_error=abs(low_current-50u)/50u
+let mid_error=abs(mid_current-50u)/50u
+let high_error=abs(high_current-50u)/50u
+let current_error=max(low_error,max(mid_error,high_error))
+let output_resistance=0.001/max(abs(i(VOUTD)-i(VOUTH)),1e-15)
+echo low_current $$&low_current > results.data
+echo mid_current $$&mid_current >> results.data
+echo high_current $$&high_current >> results.data
 echo current_error $$&current_error >> results.data
+echo output_resistance $$&output_resistance >> results.data
 quit
 .endc
 .end

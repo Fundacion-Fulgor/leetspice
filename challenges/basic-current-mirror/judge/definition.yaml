@@ -1,4 +1,4 @@
-version: 1
+version: 2
 conditions:
   corner:
   - tt
@@ -12,19 +12,26 @@ tests:
     corner: all
     temperature: all
   measurements:
-  - name: reference_current
+  - name: low_current
     unit: A
-    minimum: 1.0e-09
-    maximum: 0.02
-  - name: output_current
+    minimum: 4.0e-5
+    maximum: 6.0e-5
+  - name: mid_current
     unit: A
-    minimum: 1.0e-09
-    maximum: 0.02
+    minimum: 4.0e-5
+    maximum: 6.0e-5
+  - name: high_current
+    unit: A
+    minimum: 4.0e-5
+    maximum: 6.0e-5
   - name: current_error
     unit: ratio
     minimum: 0
-    maximum: 1.0
+    maximum: 0.20
+  - name: output_resistance
+    unit: ohm
+    minimum: 50000
 score:
-  strategy: inverse_worst
-  measurement: current_error
-  scale: 1.0
+  objectives:
+  - {measurement: current_error, direction: minimize, aggregation: maximum, normalization: 0.05}
+  - {measurement: output_resistance, direction: maximize, aggregation: minimum, normalization: 200000}

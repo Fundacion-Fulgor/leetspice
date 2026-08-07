@@ -1,15 +1,28 @@
 .lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
 .include submission.spice
 .temp ${temperature}
+
 VDD vdd 0 1.2
-VIN in 0 0.8
+VIN in 0 0.8 AC 1
+CLOAD out 0 1p
 XDUT in out vdd 0 source_follower
+
 .control
 op
 let output_voltage=v(out)
 let supply_current=abs(i(VDD))
-echo output_voltage $$&output_voltage > results.data
-echo supply_current $$&supply_current >> results.data
+
+ac dec 10 1 10g
+let out_mag=mag(v(out))
+let ac_gain=out_mag[0]
+let target_val=ac_gain/sqrt(2)
+meas ac bandwidth_raw WHEN out_mag=target_val FALL=1
+let bandwidth=bandwidth_raw
+
+echo output_voltage $$&op1.output_voltage > results.data
+echo supply_current $$&op1.supply_current >> results.data
+echo ac_gain $$&ac_gain >> results.data
+echo bandwidth $$&bandwidth >> results.data
 quit
 .endc
 .end

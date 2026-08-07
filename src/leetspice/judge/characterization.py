@@ -13,7 +13,7 @@ from string import Template
 
 from .definition import CharacterizationDefinition, ScoreDefinition, TestDefinition, load_definition
 from .result import JudgeResult, Measurement
-from .validator import validate_netlist
+from .validator import validate_netlist, validate_structure
 
 RESULT_PATTERN = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s+([^\s]+)$")
 SAFE_TEXT = re.compile(r"^[A-Za-z0-9_.+-]+$")
@@ -42,6 +42,11 @@ class CharacterizationJudge:
     ) -> JudgeResult:
         try:
             validate_netlist(netlist, expected_subckt, expected_pins)
+            structure = config.get("structure")
+            if structure is not None:
+                if not isinstance(structure, dict):
+                    raise ValueError("judge_config.structure must be an object")
+                validate_structure(netlist, structure)
             challenge_root = (self.challenges_path / fixture_path).resolve()
             challenge_root.relative_to(self.challenges_path.resolve())
             definition_path = config.get("definition")

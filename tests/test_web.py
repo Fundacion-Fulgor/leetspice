@@ -1,9 +1,12 @@
 from hashlib import sha256
+from pathlib import Path
 
 from sqlalchemy import select
 
 from leetspice import db
 from leetspice.models import Challenge, Submission, User
+
+CHALLENGES = Path(__file__).parents[1] / "challenges"
 
 
 def test_registration_login_logout_and_csrf(client, csrf, register):
@@ -387,7 +390,7 @@ def test_manifest_seeding_and_grouping(client):
     assert "introductory" in response.text
     with db.SessionLocal() as session:
         challenges = session.scalars(select(Challenge)).all()
-        assert len(challenges) == 31
+        assert len(challenges) == len(list(CHALLENGES.glob("*/challenge.json")))
         for c in challenges:
             if c.slug == "demo-cmos-inverter":
                 assert c.difficulty == "introductory"

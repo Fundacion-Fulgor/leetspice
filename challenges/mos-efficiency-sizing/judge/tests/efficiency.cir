@@ -7,23 +7,20 @@ VDG dg 0 0.9
 VGG gg 0 0.601
 VDD dd 0 0.901
 VGD gd 0 0.6
-XBASE d0 g0 0 0 mos_operating_point
-XGM dg gg 0 0 mos_operating_point
-XGDS dd gd 0 0 mos_operating_point
+XBASE d0 g0 0 0 mos_efficiency
+XGM dg gg 0 0 mos_efficiency
+XGDS dd gd 0 0 mos_efficiency
 .control
 op
 let drain_current=abs(i(VD0))
 let transconductance=(abs(i(VDG))-drain_current)/0.001
 let output_conductance=(abs(i(VDD))-drain_current)/0.001
-let output_resistance=1/max(output_conductance,1e-15)
 let gmid=transconductance/max(drain_current,1e-15)
 let intrinsic_gain=transconductance/max(output_conductance,1e-15)
 echo drain_current $$&drain_current > results.data
-echo transconductance $$&transconductance >> results.data
-echo output_conductance $$&output_conductance >> results.data
-echo output_resistance $$&output_resistance >> results.data
 echo gmid $$&gmid >> results.data
 echo intrinsic_gain $$&intrinsic_gain >> results.data
+echo output_conductance $$&output_conductance >> results.data
 quit
 .endc
 .end

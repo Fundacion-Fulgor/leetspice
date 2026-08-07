@@ -18,15 +18,17 @@ a 1.2 V supply and 10 fF output load.
 | `wn` | 0.13 µm to 20 µm | 1 µm |
 | `wp` | 0.13 µm to 40 µm | 2 µm |
 
-## Public PoC checks
+## Public checks
 
 - `tPHL`, `tPLH`, 10-90% rise time, and 90-10% fall time must each be at most 500 ps.
 - Average supply current must be at most 100 µA.
 - Settled logic low must be at most 0.12 V and logic high at least 1.08 V.
 - Every limit must pass at all nine process/temperature combinations.
 
-The score is `1000 / worst propagation delay in ps`, so higher is better after
-all hard limits pass. This is schematic-level simulation, not post-layout
+After all hard limits pass, the score is the equally weighted geometric mean of
+worst-case `tPHL`, `tPLH`, and average current, normalized to 100 ps, 100 ps,
+and 25 uA respectively and minimized. This rewards balanced edges rather than
+optimizing only one transition. This is schematic-level simulation, not post-layout
 signoff, mismatch, Monte Carlo, reliability, or manufacturability verification.
 
 The production worker runs ngspice directly from the submitted subcircuit and private testbench; Xschem and CACE are not part of the judge path.

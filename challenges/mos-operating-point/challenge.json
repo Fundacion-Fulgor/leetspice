@@ -1,11 +1,14 @@
 {
   "schema_version": 2,
   "slug": "mos-operating-point",
-  "title": "MOS Operating Point",
-  "summary": "Design and optimize an IHP SG13G2 mos operating point across server-owned checks.",
+  "title": "MOS DC Characteristics Lab",
+  "summary": "Measure drain current, transconductance, and output resistance at a defined bias point.",
   "track": "MOS Foundations",
   "difficulty": "introductory",
-  "verification_version": 2,
+  "verification_version": 3,
+  "curriculum_order": 10,
+  "prerequisites": [],
+  "is_ranked": false,
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
   "interface": {
@@ -22,7 +25,12 @@
   },
   "judge_backend": "characterization",
   "judge_config": {
-    "definition": "judge/definition.yaml"
+    "definition": "judge/definition.yaml",
+    "structure": {
+      "exact_device_count": 1,
+      "allowed_kinds": ["X"],
+      "allowed_models": ["sg13_lv_nmos"]
+    }
   },
   "score_unit": "points",
   "lower_is_better": false,

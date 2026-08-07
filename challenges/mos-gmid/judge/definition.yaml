@@ -1,4 +1,4 @@
-version: 1
+version: 2
 conditions:
   corner:
   - tt
@@ -12,11 +12,33 @@ tests:
     corner: all
     temperature: all
   measurements:
-  - name: drain_current
+  - name: weak_current
     unit: A
     minimum: 1.0e-09
     maximum: 0.02
+  - name: moderate_current
+    unit: A
+    minimum: 1.0e-09
+    maximum: 0.02
+  - name: strong_current
+    unit: A
+    minimum: 1.0e-09
+    maximum: 0.02
+  - name: weak_gmid
+    unit: 1/V
+    minimum: 0.1
+    maximum: 40
+  - name: moderate_gmid
+    unit: 1/V
+    minimum: 0.1
+    maximum: 40
+  - name: strong_gmid
+    unit: 1/V
+    minimum: 0.1
+    maximum: 40
 score:
-  strategy: maximize_minimum
-  measurement: drain_current
-  scale: 1000000.0
+  objectives:
+  - measurement: moderate_gmid
+    direction: maximize
+    aggregation: mean
+    normalization: 10

@@ -182,3 +182,37 @@ def validate_netlist(
         raise ValueError("exactly one complete .subckt/.ends pair is required")
     if device_count == 0:
         raise ValueError("subcircuit must contain at least one device")
+
+
+def validate_structure(netlist: str, rules: dict[str, object]) -> None:
+    """Enforce optional challenge-specific topology limits after syntax validation."""
+
+    lines = _logical_lines(netlist)
+    devices = [line.split() for _, line in lines if not line.startswith(".")]
+    exact_count = rules.get("exact_device_count")
+    if exact_count is not None:
+        if not isinstance(exact_count, int) or isinstance(exact_count, bool) or exact_count < 1:
+            raise ValueError("exact_device_count must be a positive integer")
+        if len(devices) != exact_count:
+            raise ValueError(f"submission must contain exactly {exact_count} device(s)")
+    allowed_kinds = rules.get("allowed_kinds")
+    if allowed_kinds is not None:
+        if not isinstance(allowed_kinds, list) or not all(
+            isinstance(kind, str) and len(kind) == 1 for kind in allowed_kinds
+        ):
+            raise ValueError("allowed_kinds must contain one-letter element types")
+        allowed = {kind.upper() for kind in allowed_kinds}
+        if any(tokens[0][0].upper() not in allowed for tokens in devices):
+            raise ValueError("submission contains a disallowed device type")
+    allowed_models = rules.get("allowed_models")
+    if allowed_models is not None:
+        if not isinstance(allowed_models, list) or not all(
+            isinstance(model, str) and model in _SG13G2_MOS_MODELS for model in allowed_models
+        ):
+            raise ValueError("allowed_models contains an unsupported SG13G2 model")
+        allowed = {model.casefold() for model in allowed_models}
+        if any(
+            tokens[0][0].upper() in {"M", "X"} and tokens[5].casefold() not in allowed
+            for tokens in devices
+        ):
+            raise ValueError("submission contains a disallowed MOS model")
