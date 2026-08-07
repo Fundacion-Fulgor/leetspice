@@ -9,6 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from leetspice.judge import (
     CaceJudge,
+    CharacterizationJudge,
     JudgeResult,
     LayoutJudge,
     MockJudge,
@@ -249,6 +250,39 @@ def test_backend_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(configured_backend("ngspice"), NgspiceJudge)
     with pytest.raises(ValueError, match="unknown"):
         configured_backend("other")
+
+
+def test_worker_dispatches_characterization_challenge(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed = {}
+
+    class ChallengeJob:
+        netlist = VALID_INVERTER
+        expected_subckt = "inverter"
+        expected_pins = ["in", "out", "vdd", "vss"]
+        submission_kind = "netlist"
+
+        class challenge:
+            judge_backend = "characterization"
+            fixture_path = "inverter"
+            judge_config = {"definition": "judge/definition.yaml"}
+
+    def fake_judge(self, netlist, subckt, pins, fixture_path, config):
+        observed.update(
+            netlist=netlist,
+            subckt=subckt,
+            pins=pins,
+            fixture_path=fixture_path,
+            config=config,
+        )
+        return JudgeResult(True, 1.0)
+
+    monkeypatch.setattr(CharacterizationJudge, "judge", fake_judge)
+    from leetspice.worker import _judge
+
+    result, backend_name = _judge(ChallengeJob(), MockJudge())
+    assert result.accepted
+    assert backend_name == "CharacterizationJudge"
+    assert observed["fixture_path"] == "inverter"
 
 
 def test_cace_collects_pvt_measurements(tmp_path: Path) -> None:

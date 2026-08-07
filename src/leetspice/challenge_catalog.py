@@ -15,7 +15,7 @@ from .models import Challenge
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.$-]*$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-BACKENDS = {"cace", "klayout", "profile"}
+BACKENDS = {"cace", "characterization", "klayout", "profile"}
 KINDS = {"netlist", "gds"}
 DIFFICULTIES = {"introductory", "intermediate", "advanced", "capstone"}
 
@@ -102,6 +102,10 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
             raise ValueError(f"{source}: profile backend requires judge_config.profile")
         if judge_config.get("family") not in PROFILE_LIMITS:
             raise ValueError(f"{source}: profile backend has an invalid family")
+    if backend == "characterization":
+        definition = judge_config.get("definition")
+        if not isinstance(definition, str) or not (path / definition).is_file():
+            raise ValueError(f"{source}: characterization definition is missing")
 
     return slug, {
         "title": title,

@@ -20,7 +20,15 @@ from typing import Any
 
 from sqlalchemy import select
 
-from .judge import CaceJudge, JudgeResult, LayoutJudge, MockJudge, NgspiceJudge, ProfileJudge
+from .judge import (
+    CaceJudge,
+    CharacterizationJudge,
+    JudgeResult,
+    LayoutJudge,
+    MockJudge,
+    NgspiceJudge,
+    ProfileJudge,
+)
 
 LOGGER = logging.getLogger("leetspice.worker")
 SESSION_MODULES = ("leetspice.database", "leetspice.db")
@@ -127,6 +135,17 @@ def _judge(job: Any, backend: Any) -> tuple[JudgeResult, str]:
         netlist, subckt, pins = _payload(job)
         result = profile_backend.judge(netlist, subckt, pins, dict(challenge.judge_config))
         return result, type(profile_backend).__name__
+    if challenge is not None and getattr(challenge, "judge_backend", None) == "characterization":
+        characterization_backend = CharacterizationJudge()
+        netlist, subckt, pins = _payload(job)
+        result = characterization_backend.judge(
+            netlist,
+            subckt,
+            pins,
+            challenge.fixture_path,
+            dict(challenge.judge_config),
+        )
+        return result, type(characterization_backend).__name__
     return backend.judge(*_payload(job)), type(backend).__name__
 
 

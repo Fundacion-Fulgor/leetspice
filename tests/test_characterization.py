@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from leetspice.judge.characterization import CharacterizationJudge
+from leetspice.judge.definition import load_definition
+
+NETLIST = ".subckt dut in out vdd vss\nR1 in out 1k\n.ends dut\n"
+
+
+def package(tmp_path: Path, definition: str | None = None) -> Path:
+    root = tmp_path / "challenges" / "test"
+    (root / "judge" / "tests").mkdir(parents=True)
+    (root / "judge" / "definition.yaml").write_text(
+        definition
+        or """version: 1
+conditions:
+  corner: [tt, ss]
+  temperature: [27]
+tests:
+  - name: dc
+    template: judge/tests/dc.cir
+    timeout: 3
+    sweep: {corner: all, temperature: all}
+    measurements:
+      - {name: gain, unit: V/V, minimum: 5}
+      - {name: current, unit: A, maximum: 0.001}
+score: {strategy: efficiency, measurement: gain, denominator: current, scale: 0.001}
+""",
+        encoding="utf-8",
+    )
+    (root / "judge" / "tests" / "dc.cir").write_text(
+        ".lib ${pdk_root}/models.lib mos_${corner}\n"
+        ".include submission.spice\n"
+        ".temp ${temperature}\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_definition_rejects_private_path_escape(tmp_path: Path) -> None:
+    root = package(tmp_path)
+    with pytest.raises(ValueError, match="escapes"):
+        load_definition(root, "../definition.yaml")
+
+
+def test_characterization_expands_conditions_and_scores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package(tmp_path)
+    calls = []
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((command, kwargs))
+        run = Path(kwargs["cwd"])
+        deck = (run / "testbench.cir").read_text(encoding="utf-8")
+        assert "submission.spice" in deck
+        assert "${" not in deck
+        (run / "results.data").write_text("gain 10\ncurrent 0.0005\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = CharacterizationJudge(
+        challenges_path=tmp_path / "challenges", pdk_root="/pdk", executable="ngspice"
+    ).judge(
+        NETLIST, "dut", ["in", "out", "vdd", "vss"], "test", {"definition": "judge/definition.yaml"}
+    )
+
+    assert result.accepted
+    assert result.score == 20.0
+    assert [item.name for item in result.measurements] == [
+        "gain_tt_27C",
+        "current_tt_27C",
+        "gain_ss_27C",
+        "current_ss_27C",
+    ]
+    assert len(calls) == 2
+    assert calls[0][1]["stdin"] is subprocess.DEVNULL
+    assert calls[0][1]["timeout"] == 3
+
+
+@pytest.mark.parametrize(
+    "output", ["gain nan\ncurrent 1e-4\n", "gain 10\n", "gain 10\ngain 11\ncurrent 1e-4\n"]
+)
+def test_characterization_rejects_invalid_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, output: str
+) -> None:
+    package(tmp_path)
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        Path(kwargs["cwd"], "results.data").write_text(output, encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = CharacterizationJudge(challenges_path=tmp_path / "challenges").judge(
+        NETLIST, "dut", ["in", "out", "vdd", "vss"], "test", {"definition": "judge/definition.yaml"}
+    )
+    assert not result.accepted
+    assert result.score == 0

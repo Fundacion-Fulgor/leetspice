@@ -1,5 +1,7 @@
 """Submission validation and judge backends."""
 
+from .cace import CaceJudge
+from .characterization import CharacterizationJudge
 from .layout import LayoutJudge
 from .mock import MockJudge
 from .ngspice import NgspiceJudge
@@ -9,6 +11,7 @@ from .validator import validate_netlist
 
 __all__ = [
     "JudgeResult",
+    "CharacterizationJudge",
     "LayoutJudge",
     "Measurement",
     "MockJudge",
@@ -17,4 +20,3 @@ __all__ = [
     "CaceJudge",
     "validate_netlist",
 ]
-from .cace import CaceJudge
