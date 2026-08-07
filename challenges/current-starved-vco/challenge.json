@@ -5,7 +5,7 @@
   "summary": "Design and optimize an IHP SG13G2 current-starved vco across server-owned checks.",
   "track": "Dynamic Circuits",
   "difficulty": "advanced",
-  "verification_version": 1,
+  "verification_version": 2,
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
   "interface": {
@@ -20,10 +20,9 @@
   "submission": {
     "kind": "netlist"
   },
-  "judge_backend": "profile",
+  "judge_backend": "characterization",
   "judge_config": {
-    "profile": "vco",
-    "family": "oscillator_control"
+    "definition": "judge/definition.yaml"
   },
   "score_unit": "points",
   "lower_is_better": false,

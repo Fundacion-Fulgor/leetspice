@@ -1,0 +1,9 @@
+.subckt folded_cascode_op_amp inp inn out vdd vss
+XINP np inp tail vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+XINN nn inn tail vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+XFP foldp np vdd vdd sg13_lv_pmos W=10u L=0.5u ng=1 m=1
+XFN out nn vdd vdd sg13_lv_pmos W=10u L=0.5u ng=1 m=1
+XCP out bias foldp vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+XTAIL tail bias vss vss sg13_lv_nmos W=10u L=0.5u ng=1 m=1
+RBIAS vdd bias 30k
+.ends folded_cascode_op_amp

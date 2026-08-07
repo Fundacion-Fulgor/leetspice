@@ -1,0 +1,33 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+
+VDD vdd 0 1.2
+VIN in 0 PULSE(1.2 0 2n 20p 20p 4n 8n)
+CLOAD out 0 10f
+XDUT in out vdd 0 inverter
+
+.control
+tran 1p 12n
+meas tran tplh_s TRIG v(in) VAL=0.6 FALL=1 TARG v(out) VAL=0.6 RISE=1
+meas tran tphl_s TRIG v(in) VAL=0.6 RISE=1 TARG v(out) VAL=0.6 FALL=1
+meas tran rise_time_s TRIG v(out) VAL=0.12 RISE=1 TARG v(out) VAL=1.08 RISE=1
+meas tran fall_time_s TRIG v(out) VAL=1.08 FALL=1 TARG v(out) VAL=0.12 FALL=1
+meas tran average_current_a AVG i(VDD) FROM=2n TO=10n
+meas tran logic_high FIND v(out) AT=5n
+meas tran logic_low FIND v(out) AT=9n
+let tphl=tphl_s*1e12
+let tplh=tplh_s*1e12
+let rise_time=rise_time_s*1e12
+let fall_time=fall_time_s*1e12
+let average_current=abs(average_current_a)*1e6
+echo tphl $$&tphl > results.data
+echo tplh $$&tplh >> results.data
+echo rise_time $$&rise_time >> results.data
+echo fall_time $$&fall_time >> results.data
+echo average_current $$&average_current >> results.data
+echo logic_low $$&logic_low >> results.data
+echo logic_high $$&logic_high >> results.data
+quit
+.endc
+.end

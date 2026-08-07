@@ -1,0 +1,26 @@
+version: 1
+conditions:
+  corner:
+  - tt
+  temperature:
+  - 27
+tests:
+- name: functional
+  template: judge/tests/functional.cir
+  timeout: 30
+  sweep:
+    corner: all
+    temperature: all
+  measurements:
+  - name: sampled_voltage
+    unit: V
+    minimum: 0
+    maximum: 1.2
+  - name: sample_error
+    unit: V
+    minimum: 0
+    maximum: 0.6
+score:
+  strategy: inverse_worst
+  measurement: sample_error
+  scale: 1.0

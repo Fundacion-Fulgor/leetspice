@@ -6,7 +6,7 @@
 
 Submit a CMOS inverter as exactly one `.subckt inverter in out vdd vss`. The PoC validator permits MOSFETs, resistors, and capacitors, but no testbench directives, sources, includes, models, or control scripts.
 
-The judge uses CACE 2.11.0 and ngspice with the SG13G2 low-voltage compact
+The judge uses a private server-owned ngspice deck with the SG13G2 low-voltage compact
 models pinned at PDK commit `8d3ee38d4540ed675d3ac08332a51f75258fc3a7`.
 It evaluates `tt`, `ff`, and `ss` process corners at -40, 27, and 125 °C with
 a 1.2 V supply and 10 fF output load.
@@ -29,4 +29,4 @@ The score is `1000 / worst propagation delay in ps`, so higher is better after
 all hard limits pass. This is schematic-level simulation, not post-layout
 signoff, mismatch, Monte Carlo, reliability, or manufacturability verification.
 
-Local development defaults to the mock runner. A mock pass demonstrates the submission workflow only and is not evidence that ngspice evaluated the circuit.
+The production worker runs ngspice directly from the submitted subcircuit and private testbench; Xschem and CACE are not part of the judge path.

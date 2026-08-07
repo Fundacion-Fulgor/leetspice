@@ -190,30 +190,34 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
         challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
         session.add_all(
             [
-                Submission(
-                    user_id=users["First"].id,
-                    challenge_id=challenge.id,
+                    Submission(
+                        user_id=users["First"].id,
+                        challenge_id=challenge.id,
+                        verification_version=challenge.verification_version,
                     netlist="a",
                     status="accepted",
                     score=8.0,
                 ),
-                Submission(
-                    user_id=users["First"].id,
-                    challenge_id=challenge.id,
+                    Submission(
+                        user_id=users["First"].id,
+                        challenge_id=challenge.id,
+                        verification_version=challenge.verification_version,
                     netlist="b",
                     status="accepted",
                     score=3.0,
                 ),
-                Submission(
-                    user_id=users["Second"].id,
-                    challenge_id=challenge.id,
+                    Submission(
+                        user_id=users["Second"].id,
+                        challenge_id=challenge.id,
+                        verification_version=challenge.verification_version,
                     netlist="c",
                     status="accepted",
                     score=5.0,
                 ),
-                Submission(
-                    user_id=users["Second"].id,
-                    challenge_id=challenge.id,
+                    Submission(
+                        user_id=users["Second"].id,
+                        challenge_id=challenge.id,
+                        verification_version=challenge.verification_version,
                     netlist="d",
                     status="failed",
                     score=1.0,

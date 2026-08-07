@@ -5,7 +5,7 @@
   "summary": "Design and optimize an IHP SG13G2 bandgap reference across server-owned checks.",
   "track": "References",
   "difficulty": "capstone",
-  "verification_version": 1,
+  "verification_version": 2,
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
   "interface": {
@@ -19,10 +19,9 @@
   "submission": {
     "kind": "netlist"
   },
-  "judge_backend": "profile",
+  "judge_backend": "characterization",
   "judge_config": {
-    "profile": "bandgap",
-    "family": "reference_voltage"
+    "definition": "judge/definition.yaml"
   },
   "score_unit": "points",
   "lower_is_better": false,

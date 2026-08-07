@@ -1,0 +1,50 @@
+version: 1
+conditions:
+  corner:
+  - tt
+  - ff
+  - ss
+  temperature:
+  - -40
+  - 27
+  - 125
+tests:
+- name: timing
+  template: judge/tests/timing.cir
+  timeout: 30
+  sweep:
+    corner: all
+    temperature: all
+  measurements:
+  - name: tphl
+    unit: ps
+    minimum: 0
+    maximum: 500
+  - name: tplh
+    unit: ps
+    minimum: 0
+    maximum: 500
+  - name: rise_time
+    unit: ps
+    minimum: 0
+    maximum: 500
+  - name: fall_time
+    unit: ps
+    minimum: 0
+    maximum: 500
+  - name: average_current
+    unit: uA
+    minimum: 0
+    maximum: 100
+  - name: logic_low
+    unit: V
+    minimum: 0
+    maximum: 0.12
+  - name: logic_high
+    unit: V
+    minimum: 1.08
+    maximum: 1.2
+score:
+  strategy: inverse_worst
+  measurement: tphl
+  scale: 1000

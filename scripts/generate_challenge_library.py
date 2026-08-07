@@ -63,6 +63,110 @@ FAMILY_BENCHES = {
         ],
         "score": ("inverse_worst", "current_error", None, 1.0),
     },
+    "differential": {
+        "sources": "VDD vdd 0 1.2\nVINP inp 0 0.6\nVINN inn 0 0.6",
+        "instance": "XDUT inp inn outp outn vdd 0 {subckt}",
+        "control": (
+            "op\nlet output_common_mode=(v(outp)+v(outn))/2\n"
+            "let output_imbalance=abs(v(outp)-v(outn))\nlet supply_current=abs(i(VDD))"
+        ),
+        "measurements": [
+            ("output_common_mode", "V", 0.001, 1.199),
+            ("output_imbalance", "V", 0, 0.1),
+            ("supply_current", "A", 1e-9, 0.05),
+        ],
+        "score": ("inverse_worst", "output_imbalance", None, 1.0),
+    },
+    "ota": {
+        "sources": "VDD vdd 0 1.2\nVINP inp 0 0.6\nVINN inn 0 0.6",
+        "instance": "XDUT inp inn out vdd 0 {subckt}",
+        "control": "op\nlet output_voltage=v(out)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_voltage", "V", 0.000001, 1.199999),
+            ("supply_current", "A", 1e-12, 0.05),
+        ],
+        "score": ("efficiency", "output_voltage", "supply_current", 1e-6),
+    },
+    "complex_opamp": {
+        "sources": "VDD vdd 0 1.2\nVINP inp 0 0.6\nVINN inn 0 0.6",
+        "instance": "XDUT inp inn out vdd 0 {subckt}",
+        "control": "op\nlet output_voltage=v(out)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_voltage", "V", 0, 1.2),
+            ("supply_current", "A", 1e-12, 0.05),
+        ],
+        "score": ("efficiency", "output_voltage", "supply_current", 1e-6),
+    },
+    "cmfb": {
+        "sources": "VDD vdd 0 1.2\nVOP outp 0 0.7\nVON outn 0 0.5\nVCM vcm 0 0.6",
+        "instance": "XDUT outp outn vcm ctrl vdd 0 {subckt}",
+        "control": "op\nlet control_voltage=v(ctrl)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("control_voltage", "V", 0, 1.2),
+            ("supply_current", "A", 0, 0.05),
+        ],
+        "score": ("efficiency", "control_voltage", "supply_current", 1e-6),
+    },
+    "sampler": {
+        "sources": "VDD vdd 0 1.2\nVIN in 0 0.6\nVCLK clk 0 1.2",
+        "instance": "XDUT in out clk vdd 0 {subckt}",
+        "control": "op\nlet sampled_voltage=v(out)\nlet sample_error=abs(v(out)-v(in))",
+        "measurements": [
+            ("sampled_voltage", "V", 0, 1.2),
+            ("sample_error", "V", 0, 0.6),
+        ],
+        "score": ("inverse_worst", "sample_error", None, 1.0),
+    },
+    "oscillator": {
+        "sources": "VDD vdd 0 1.2",
+        "instance": "XDUT out vdd 0 {subckt}",
+        "control": "op\nlet output_bias=v(out)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_bias", "V", 0, 1.2),
+            ("supply_current", "A", 1e-12, 0.05),
+        ],
+        "score": ("efficiency", "output_bias", "supply_current", 1e-6),
+    },
+    "oscillator_control": {
+        "sources": "VDD vdd 0 1.2\nVCTRL vctrl 0 0.8",
+        "instance": "XDUT vctrl out vdd 0 {subckt}",
+        "control": "op\nlet output_bias=v(out)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_bias", "V", 0, 1.2),
+            ("supply_current", "A", 1e-12, 0.05),
+        ],
+        "score": ("efficiency", "output_bias", "supply_current", 1e-6),
+    },
+    "charge_pump": {
+        "sources": "VDD vdd 0 1.2\nVUP up 0 0\nVDN dn 0 0\nVOUT out 0 0.6",
+        "instance": "XDUT up dn out vdd 0 {subckt}",
+        "control": "op\nlet output_current=abs(i(VOUT))\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_current", "A", 0, 0.05),
+            ("supply_current", "A", 0, 0.05),
+        ],
+        "score": ("inverse_worst", "output_current", None, 1e-6),
+    },
+    "reference_current": {
+        "sources": "VDD vdd 0 1.2\nVOUT out 0 0.6",
+        "instance": "XDUT vdd 0 out {subckt}",
+        "control": "op\nlet output_current=abs(i(VOUT))\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_current", "A", 0, 0.05),
+            ("supply_current", "A", 0, 0.05),
+        ],
+        "score": ("maximize_minimum", "output_current", None, 1e6),
+    },
+    "reference_voltage": {
+        "sources": "VDD vdd 0 1.2",
+        "instance": "XDUT vdd 0 vref {subckt}",
+        "control": "op\nlet reference_voltage=v(vref)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("reference_voltage", "V", 0.000001, 1.199999),
+            ("supply_current", "A", 1e-12, 0.05),
+        ],
+        "score": ("efficiency", "reference_voltage", "supply_current", 1e-6),
+    },
 }
 
 ELECTRICAL = [

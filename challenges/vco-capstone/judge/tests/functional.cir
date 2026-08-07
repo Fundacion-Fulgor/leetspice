@@ -1,0 +1,15 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+VDD vdd 0 1.2
+VCTRL vctrl 0 0.8
+XDUT vctrl out vdd 0 vco_capstone
+.control
+op
+let output_bias=v(out)
+let supply_current=abs(i(VDD))
+echo output_bias $$&output_bias > results.data
+echo supply_current $$&supply_current >> results.data
+quit
+.endc
+.end

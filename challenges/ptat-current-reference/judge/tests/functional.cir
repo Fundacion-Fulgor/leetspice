@@ -1,0 +1,15 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+VDD vdd 0 1.2
+VOUT out 0 0.6
+XDUT vdd 0 out ptat_current_reference
+.control
+op
+let output_current=abs(i(VOUT))
+let supply_current=abs(i(VDD))
+echo output_current $$&output_current > results.data
+echo supply_current $$&supply_current >> results.data
+quit
+.endc
+.end

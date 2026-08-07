@@ -61,6 +61,13 @@ def test_profile_starters_pass_their_profile() -> None:
         assert result.accepted, f"{source.parent.name}: {result.message}"
 
 
+def test_all_netlist_challenges_use_real_characterization() -> None:
+    for source in sorted(CHALLENGES.glob("*/challenge.json")):
+        _, values = _read_package(source.parent)
+        if values["submission_kind"] == "netlist":
+            assert values["judge_backend"] == "characterization"
+
+
 def test_private_layout_references_are_not_public_assets() -> None:
     for source in sorted(CHALLENGES.glob("*/challenge.json")):
         manifest = json.loads(source.read_text(encoding="utf-8"))
