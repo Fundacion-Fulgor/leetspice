@@ -20,6 +20,7 @@
     </div>
     <nav aria-label="Main navigation">
       <a href="/">Challenges</a>
+      <a href="/leaderboard">Leaderboard</a>
       {% if current_user %}
         <span class="identity">{{ current_user.display_name }}</span>
         <form method="post" action="/logout" class="inline-form">

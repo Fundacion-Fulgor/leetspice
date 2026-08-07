@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, new_session, require_csrf, verify_password
 from .db import get_session
+from .leaderboards import global_leaderboard
 from .models import Challenge, Submission, User
 
 router = APIRouter()
@@ -88,6 +89,29 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
 @router.get("/register", response_class=HTMLResponse)
 def register_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
     return templates.TemplateResponse(request, "register.html", _context(request, db))
+
+
+@router.get("/leaderboard", response_class=HTMLResponse)
+def global_board(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    challenges = db.scalars(
+        select(Challenge).where(Challenge.is_active.is_(True)).order_by(Challenge.id)
+    ).all()
+    return templates.TemplateResponse(
+        request,
+        "global_leaderboard.html",
+        _context(
+            request,
+            db,
+            leaders=global_leaderboard(db),
+            maximum_points=sum(
+                {"introductory": 1, "intermediate": 2, "advanced": 3, "capstone": 4}[
+                    challenge.difficulty
+                ]
+                * 100
+                for challenge in challenges
+            ),
+        ),
+    )
 
 
 @router.post("/register", response_class=HTMLResponse)

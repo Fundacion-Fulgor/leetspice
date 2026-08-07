@@ -217,6 +217,14 @@ def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_global_leaderboard_is_public_and_linked(client):
+    response = client.get("/leaderboard")
+    assert response.status_code == 200
+    assert "Difficulty-weighted rankings" in response.text
+    assert "introductory 1×" in response.text
+    assert 'href="/leaderboard"' in client.get("/").text
+
+
 def test_stylesheet_url_is_versioned(client):
     response = client.get("/")
     assert "/static/app.css?v=6" in response.text
