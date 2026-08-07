@@ -1,0 +1,6 @@
+.subckt cascode_current_mirror iref out vss
+XREFLOW refmid iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+XREFHIGH iref iref refmid vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+XOUTLOW outmid iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+XOUTHIGH out iref outmid vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1
+.ends cascode_current_mirror
