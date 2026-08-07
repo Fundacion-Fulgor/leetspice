@@ -121,7 +121,7 @@ def test_global_leaderboard_weights_best_current_accepted_scores(client) -> None
 def test_global_leaderboard_gives_sole_participant_full_points(client) -> None:
     with db.SessionLocal() as session:
         user = User(email="sole@example.com", display_name="Sole", password_hash="hash")
-        challenge = session.scalar(select(Challenge).where(Challenge.slug == "bandgap-reference"))
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
         session.add(user)
         session.flush()
         session.add(
@@ -136,4 +136,4 @@ def test_global_leaderboard_gives_sole_participant_full_points(client) -> None:
         session.commit()
         leaders = global_leaderboard(session)
     assert leaders[0].rank == 1
-    assert leaders[0].total_points == 400
+    assert leaders[0].total_points == 100
