@@ -45,5 +45,5 @@
   ],
   "score_unit": "points",
   "lower_is_better": false,
-  "is_active": true
+  "is_active": false
 }
