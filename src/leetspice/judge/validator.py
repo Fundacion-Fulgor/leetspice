@@ -18,6 +18,8 @@ _NUMBER = re.compile(
 )
 _MOS_PARAMETERS = {"w", "l", "m", "nf", "ng", "ad", "as", "pd", "ps", "nrd", "nrs"}
 _SG13G2_MOS_MODELS = {"sg13_lv_nmos", "sg13_lv_pmos"}
+_SG13G2_HBT_MODELS = {"npn13g2"}
+_HBT_PARAMETERS = {"nx"}
 
 
 def _logical_lines(netlist: str) -> list[tuple[int, str]]:
@@ -73,18 +75,23 @@ def _validate_device(tokens: list[str], line_number: int) -> None:
 
     if not _IDENTIFIER.fullmatch(tokens[5]):
         raise ValueError(f"line {line_number}: invalid MOS model name")
-    if kind == "X" and tokens[5].casefold() not in _SG13G2_MOS_MODELS:
+    model = tokens[5].casefold()
+    if kind == "X" and model not in _SG13G2_MOS_MODELS | _SG13G2_HBT_MODELS:
         raise ValueError(f"line {line_number}: unsupported SG13G2 device {tokens[5]!r}")
+    parameters = _HBT_PARAMETERS if model in _SG13G2_HBT_MODELS else _MOS_PARAMETERS
     seen_parameters: set[str] = set()
     for parameter in tokens[6:]:
         if parameter.count("=") != 1:
             raise ValueError(f"line {line_number}: invalid MOS parameter")
         name, value = parameter.split("=", 1)
         folded_name = name.casefold()
+        valid_value = _NUMBER.fullmatch(value) is not None
+        if model in _SG13G2_HBT_MODELS and folded_name == "nx":
+            valid_value = value.isdigit() and int(value) >= 1
         if (
-            folded_name not in _MOS_PARAMETERS
+            folded_name not in parameters
             or folded_name in seen_parameters
-            or not _NUMBER.fullmatch(value)
+            or not valid_value
         ):
             raise ValueError(f"line {line_number}: invalid MOS parameter {parameter!r}")
         seen_parameters.add(folded_name)

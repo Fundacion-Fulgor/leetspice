@@ -37,6 +37,18 @@ def test_validate_netlist_accepts_ihp_gate_count_parameter() -> None:
     assert validate_netlist(netlist, "inverter", ["in", "out", "vdd", "vss"]) is None
 
 
+def test_validate_netlist_accepts_allowlisted_ihp_hbt() -> None:
+    netlist = ".subckt bipolar c b e bn\nXQ c b e bn npn13G2 Nx=2\n.ends bipolar\n"
+    assert validate_netlist(netlist, "bipolar", ["c", "b", "e", "bn"]) is None
+
+
+@pytest.mark.parametrize("parameter", ["W=1u", "Nx=0.5", "area=2"])
+def test_validate_netlist_rejects_invalid_hbt_parameters(parameter: str) -> None:
+    netlist = f".subckt bipolar c b e bn\nXQ c b e bn npn13G2 {parameter}\n.ends bipolar\n"
+    with pytest.raises(ValueError, match="invalid MOS parameter"):
+        validate_netlist(netlist, "bipolar", ["c", "b", "e", "bn"])
+
+
 @pytest.mark.parametrize(
     ("netlist", "message"),
     [
