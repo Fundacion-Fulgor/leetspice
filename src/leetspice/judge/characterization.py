@@ -73,6 +73,14 @@ class CharacterizationJudge:
                     run = root / f"{test.name}-{index}"
                     run.mkdir()
                     (run / "submission.spice").write_text(netlist, encoding="utf-8")
+                    spiceinit = (
+                        self.pdk_root / "ihp-sg13g2" / "libs.tech" / "ngspice" / ".spiceinit"
+                    )
+                    if not spiceinit.is_file():
+                        raise ValueError("SG13G2 ngspice initialization is missing")
+                    (run / ".spiceinit").write_text(
+                        spiceinit.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
                     context = {name: self._safe_value(value) for name, value in conditions.items()}
                     context["pdk_root"] = str(self.pdk_root)
                     template = Template(test.template.read_text(encoding="utf-8"))
@@ -93,9 +101,21 @@ class CharacterizationJudge:
                         text=True,
                         timeout=test.timeout,
                         check=False,
+                        env={
+                            **os.environ,
+                            "HOME": str(run),
+                            "PDK_ROOT": str(self.pdk_root),
+                            "PDK": "ihp-sg13g2",
+                        },
                     )
                     if completed.returncode != 0:
-                        raise ValueError(f"ngspice failed: {completed.stdout[-4096:]}")
+                        log_path = run / "ngspice.log"
+                        output = (
+                            log_path.read_text(encoding="utf-8", errors="replace")
+                            if log_path.is_file()
+                            else completed.stdout
+                        )
+                        raise ValueError(f"ngspice failed: {output[-4096:]}")
                     values = self._parse_results(run / test.result_file, test)
                     suffix = self._suffix(conditions)
                     for spec in test.measurements:

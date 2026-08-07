@@ -1,0 +1,15 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+VD d 0 1.0
+VG g 0 0.7
+VS s 0 0
+VB b 0 0
+XDUT d g s b mos_operating_point
+.control
+op
+let drain_current=abs(i(VD))
+echo drain_current $$&drain_current > results.data
+quit
+.endc
+.end

@@ -1,0 +1,22 @@
+version: 1
+conditions:
+  corner:
+  - tt
+  temperature:
+  - 27
+tests:
+- name: functional
+  template: judge/tests/functional.cir
+  timeout: 30
+  sweep:
+    corner: all
+    temperature: all
+  measurements:
+  - name: drain_current
+    unit: A
+    minimum: 1.0e-09
+    maximum: 0.02
+score:
+  strategy: maximize_minimum
+  measurement: drain_current
+  scale: 1000000.0

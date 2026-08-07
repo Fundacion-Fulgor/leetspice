@@ -1,0 +1,5 @@
+.subckt cascode_gain_stage in out bias vdd vss
+XIN mid in vss vss sg13_lv_nmos W=4u L=0.26u ng=1 m=1
+XCAS out bias mid vss sg13_lv_nmos W=4u L=0.26u ng=1 m=1
+RLOAD vdd out 30k
+.ends cascode_gain_stage

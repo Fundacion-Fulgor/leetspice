@@ -1,0 +1,5 @@
+.subckt low_noise_front_end in out vdd vss
+XIN out in vss vss sg13_lv_nmos W=40u L=0.5u ng=4 m=1
+XLOAD out out vdd vdd sg13_lv_pmos W=80u L=0.5u ng=4 m=1
+CLOAD out vss 100f
+.ends low_noise_front_end

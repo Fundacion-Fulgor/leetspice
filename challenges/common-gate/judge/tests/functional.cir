@@ -1,0 +1,16 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+VDD vdd 0 1.2
+VIN in 0 0.2
+VBIAS bias 0 0.7
+XDUT in out bias vdd 0 common_gate
+.control
+op
+let output_voltage=v(out)
+let supply_current=abs(i(VDD))
+echo output_voltage $$&output_voltage > results.data
+echo supply_current $$&supply_current >> results.data
+quit
+.endc
+.end

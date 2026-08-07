@@ -7,7 +7,63 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1] / "challenges"
+
+FAMILY_BENCHES = {
+    "device": {
+        "sources": "VD d 0 1.0\nVG g 0 0.7\nVS s 0 0\nVB b 0 0",
+        "instance": "XDUT d g s b {subckt}",
+        "control": "op\nlet drain_current=abs(i(VD))",
+        "measurements": [("drain_current", "A", 1e-9, 0.02)],
+        "score": ("maximize_minimum", "drain_current", None, 1e6),
+    },
+    "source_follower": {
+        "sources": "VDD vdd 0 1.2\nVIN in 0 0.8",
+        "instance": "XDUT in out vdd 0 {subckt}",
+        "control": "op\nlet output_voltage=v(out)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_voltage", "V", 0.01, 1.19),
+            ("supply_current", "A", 1e-9, 0.02),
+        ],
+        "score": ("efficiency", "output_voltage", "supply_current", 1e-6),
+    },
+    "amplifier": {
+        "sources": "VDD vdd 0 1.2\nVIN in 0 0.6 AC 1",
+        "instance": "XDUT in out vdd 0 {subckt}",
+        "control": "op\nlet output_voltage=v(out)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_voltage", "V", 0.001, 1.199),
+            ("supply_current", "A", 1e-9, 0.02),
+        ],
+        "score": ("efficiency", "output_voltage", "supply_current", 1e-6),
+    },
+    "amplifier_bias": {
+        "sources": "VDD vdd 0 1.2\nVIN in 0 0.2\nVBIAS bias 0 0.7",
+        "instance": "XDUT in out bias vdd 0 {subckt}",
+        "control": "op\nlet output_voltage=v(out)\nlet supply_current=abs(i(VDD))",
+        "measurements": [
+            ("output_voltage", "V", 0.001, 1.199),
+            ("supply_current", "A", 1e-9, 0.02),
+        ],
+        "score": ("efficiency", "output_voltage", "supply_current", 1e-6),
+    },
+    "mirror": {
+        "sources": "VIREF iref 0 0.75\nVOUT out 0 1.0",
+        "instance": "XDUT iref out 0 {subckt}",
+        "control": (
+            "op\nlet reference_current=abs(i(VIREF))\nlet output_current=abs(i(VOUT))\n"
+            "let current_error=abs(output_current-reference_current)/max(reference_current,1e-15)"
+        ),
+        "measurements": [
+            ("reference_current", "A", 1e-9, 0.02),
+            ("output_current", "A", 1e-9, 0.02),
+            ("current_error", "ratio", 0, 1.0),
+        ],
+        "score": ("inverse_worst", "current_error", None, 1.0),
+    },
+}
 
 ELECTRICAL = [
     (
@@ -88,7 +144,7 @@ ELECTRICAL = [
         "cascode_mirror",
         "mirror",
         ["iref", "out", "vss"],
-        "XREF iref iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1\nXBIAS bias iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1\nXCAS out bias mid vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1\nXOUT mid iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1",
+        "XREFLOW refmid iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1\nXREFHIGH iref iref refmid vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1\nXOUTLOW outmid iref vss vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1\nXOUTHIGH out iref outmid vss sg13_lv_nmos W=2u L=0.5u ng=1 m=1",
     ),
     (
         "supply-independent-bias",
@@ -333,10 +389,59 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def characterization_files(root: Path, subckt: str, family: str, reference: str) -> None:
+    bench = FAMILY_BENCHES.get(family)
+    if bench is None:
+        return
+    measurements = [
+        {
+            "name": name,
+            "unit": unit,
+            "minimum": minimum,
+            "maximum": maximum,
+        }
+        for name, unit, minimum, maximum in bench["measurements"]
+    ]
+    strategy, measurement, denominator, scale = bench["score"]
+    score = {"strategy": strategy, "measurement": measurement, "scale": scale}
+    if denominator:
+        score["denominator"] = denominator
+    definition = {
+        "version": 1,
+        "conditions": {"corner": ["tt"], "temperature": [27]},
+        "tests": [
+            {
+                "name": "functional",
+                "template": "judge/tests/functional.cir",
+                "timeout": 30,
+                "sweep": {"corner": "all", "temperature": "all"},
+                "measurements": measurements,
+            }
+        ],
+        "score": score,
+    }
+    echoes = "\n".join(
+        f"echo {item['name']} $$&{item['name']} {'>' if index == 0 else '>>'} results.data"
+        for index, item in enumerate(measurements)
+    )
+    deck = (
+        ".lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}\n"
+        ".include submission.spice\n"
+        ".temp ${temperature}\n"
+        f"{bench['sources']}\n{str(bench['instance']).format(subckt=subckt)}\n"
+        ".control\n"
+        f"{bench['control']}\n{echoes}\nquit\n.endc\n.end\n"
+    )
+    write(root / "judge" / "definition.yaml", yaml.safe_dump(definition, sort_keys=False))
+    write(root / "judge" / "tests" / "functional.cir", deck)
+    write(root / "judge" / "reference.spice", reference)
+
+
 def main() -> None:
     for slug, title, track, difficulty, profile, family, pins, body in ELECTRICAL:
         root = ROOT / slug
         summary = f"Design and optimize an IHP SG13G2 {title.lower()} across server-owned checks."
+        has_characterization = family in FAMILY_BENCHES
         manifest = {
             "schema_version": 2,
             "slug": slug,
@@ -344,28 +449,44 @@ def main() -> None:
             "summary": summary,
             "track": track,
             "difficulty": difficulty,
-            "verification_version": 1,
+            "verification_version": 2 if has_characterization else 1,
             "starter_file": "starter.cir",
             "specification_file": "specification.md",
             "interface": {"subckt": slug.replace("-", "_"), "pins": pins},
             "submission": {"kind": "netlist"},
-            "judge_backend": "profile",
-            "judge_config": {"profile": profile, "family": family},
+            "judge_backend": "characterization" if has_characterization else "profile",
+            "judge_config": (
+                {"definition": "judge/definition.yaml"}
+                if has_characterization
+                else {"profile": profile, "family": family}
+            ),
             "score_unit": "points",
             "lower_is_better": False,
             "is_active": True,
         }
         subckt = manifest["interface"]["subckt"]
         starter = f".subckt {subckt} {' '.join(pins)}\n{body}\n.ends {subckt}\n"
+        verification = (
+            "A private, server-owned ngspice testbench loads the pinned SG13G2 compact models "
+            "and measures the documented public-terminal operating point. The checked-in private "
+            "reference passes these limits in the production image."
+            if has_characterization
+            else "Server-owned profile checks enforce circuit-family structure, device mix, and sizing bounds."
+        )
+        scoring = (
+            "The score is calculated from the measured electrical quantities after all hard limits pass."
+            if has_characterization
+            else "Fewer devices and smaller total gate width improve score after all hard limits pass."
+        )
         spec = (
             f"# {title}\n\n{summary}\n\n"
             f"Submit exactly one `.subckt {subckt} {' '.join(pins)}` using SG13G2 low-voltage MOS devices, resistors, and capacitors. "
-            "Server-owned profile checks enforce circuit-family structure, device mix, and sizing bounds. "
-            "Fewer devices and smaller total gate width improve score after all hard limits pass.\n"
+            f"{verification} {scoring}\n"
         )
         write(root / "challenge.json", json.dumps(manifest, indent=2) + "\n")
         write(root / "starter.cir", starter)
         write(root / "specification.md", spec)
+        characterization_files(root, subckt, family, starter)
 
     for slug, title, top, pins, devices in PHYSICAL:
         root = ROOT / slug

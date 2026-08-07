@@ -37,6 +37,9 @@ def test_challenge_library_is_complete_and_valid() -> None:
             validate_netlist(
                 values["starter_netlist"], values["expected_subckt"], values["expected_pins"]
             )
+            if values["judge_backend"] == "characterization":
+                assert (source.parent / manifest["judge_config"]["definition"]).is_file()
+                assert (source.parent / "judge/reference.spice").is_file()
         else:
             reference = source.parent / manifest["judge_config"]["reference_netlist"]
             assert reference.is_file()

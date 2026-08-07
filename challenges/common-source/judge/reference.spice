@@ -1,0 +1,4 @@
+.subckt common_source in out vdd vss
+XMN out in vss vss sg13_lv_nmos W=4u L=0.26u ng=1 m=1
+RLOAD vdd out 20k
+.ends common_source

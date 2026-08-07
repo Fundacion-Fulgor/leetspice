@@ -41,6 +41,14 @@ score: {strategy: efficiency, measurement: gain, denominator: current, scale: 0.
     return root
 
 
+def pdk(tmp_path: Path) -> Path:
+    root = tmp_path / "pdk"
+    spiceinit = root / "ihp-sg13g2" / "libs.tech" / "ngspice" / ".spiceinit"
+    spiceinit.parent.mkdir(parents=True)
+    spiceinit.write_text("* test init\n", encoding="utf-8")
+    return root
+
+
 def test_definition_rejects_private_path_escape(tmp_path: Path) -> None:
     root = package(tmp_path)
     with pytest.raises(ValueError, match="escapes"):
@@ -51,6 +59,7 @@ def test_characterization_expands_conditions_and_scores(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     package(tmp_path)
+    pdk_root = pdk(tmp_path)
     calls = []
 
     def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -64,7 +73,7 @@ def test_characterization_expands_conditions_and_scores(
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     result = CharacterizationJudge(
-        challenges_path=tmp_path / "challenges", pdk_root="/pdk", executable="ngspice"
+        challenges_path=tmp_path / "challenges", pdk_root=pdk_root, executable="ngspice"
     ).judge(
         NETLIST, "dut", ["in", "out", "vdd", "vss"], "test", {"definition": "judge/definition.yaml"}
     )
@@ -80,6 +89,7 @@ def test_characterization_expands_conditions_and_scores(
     assert len(calls) == 2
     assert calls[0][1]["stdin"] is subprocess.DEVNULL
     assert calls[0][1]["timeout"] == 3
+    assert calls[0][1]["env"]["PDK"] == "ihp-sg13g2"
 
 
 @pytest.mark.parametrize(
@@ -89,13 +99,16 @@ def test_characterization_rejects_invalid_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, output: str
 ) -> None:
     package(tmp_path)
+    pdk_root = pdk(tmp_path)
 
     def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         Path(kwargs["cwd"], "results.data").write_text(output, encoding="utf-8")
         return subprocess.CompletedProcess(command, 0, "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = CharacterizationJudge(challenges_path=tmp_path / "challenges").judge(
+    result = CharacterizationJudge(
+        challenges_path=tmp_path / "challenges", pdk_root=pdk_root
+    ).judge(
         NETLIST, "dut", ["in", "out", "vdd", "vss"], "test", {"definition": "judge/definition.yaml"}
     )
     assert not result.accepted

@@ -5,7 +5,7 @@
   "summary": "Design and optimize an IHP SG13G2 mos gm/id explorer across server-owned checks.",
   "track": "MOS Foundations",
   "difficulty": "introductory",
-  "verification_version": 1,
+  "verification_version": 2,
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
   "interface": {
@@ -20,10 +20,9 @@
   "submission": {
     "kind": "netlist"
   },
-  "judge_backend": "profile",
+  "judge_backend": "characterization",
   "judge_config": {
-    "profile": "mos_gmid",
-    "family": "device"
+    "definition": "judge/definition.yaml"
   },
   "score_unit": "points",
   "lower_is_better": false,
