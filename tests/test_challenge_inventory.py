@@ -43,6 +43,8 @@ def test_challenge_library_is_complete_and_valid() -> None:
         else:
             reference = source.parent / manifest["judge_config"]["reference_netlist"]
             assert reference.is_file()
+            assert (source.parent / manifest["judge_config"]["post_layout_definition"]).is_file()
+            assert (source.parent / "judge/simulation_reference.spice").is_file()
     assert tracks == REQUIRED_TRACKS
 
 

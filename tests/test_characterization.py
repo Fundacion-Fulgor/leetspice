@@ -113,3 +113,29 @@ def test_characterization_rejects_invalid_results(
     )
     assert not result.accepted
     assert result.score == 0
+
+
+def test_extracted_characterization_uses_private_definition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = package(tmp_path)
+    definition = (root / "judge/definition.yaml").read_text(encoding="utf-8")
+    (root / "judge/post_layout.yaml").write_text(definition, encoding="utf-8")
+    pdk_root = pdk(tmp_path)
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        Path(kwargs["cwd"], "results.data").write_text(
+            "gain 10\ncurrent 0.0005\n", encoding="utf-8"
+        )
+        return subprocess.CompletedProcess(command, 0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = CharacterizationJudge(
+        challenges_path=tmp_path / "challenges", pdk_root=pdk_root
+    ).judge_extracted(
+        NETLIST,
+        "test",
+        {"post_layout_definition": "judge/post_layout.yaml"},
+    )
+    assert result.accepted
+    assert "post-layout" in result.message

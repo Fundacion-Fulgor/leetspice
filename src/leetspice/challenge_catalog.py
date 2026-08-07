@@ -97,6 +97,9 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         reference = judge_config.get("reference_netlist")
         if not isinstance(reference, str) or not (path / reference).is_file():
             raise ValueError(f"{source}: private LVS reference is missing")
+        post_layout = judge_config.get("post_layout_definition")
+        if not isinstance(post_layout, str) or not (path / post_layout).is_file():
+            raise ValueError(f"{source}: private post-layout definition is missing")
     if backend == "profile":
         if not isinstance(judge_config.get("profile"), str):
             raise ValueError(f"{source}: profile backend requires judge_config.profile")

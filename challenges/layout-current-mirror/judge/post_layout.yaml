@@ -1,0 +1,30 @@
+version: 1
+conditions:
+  corner:
+  - tt
+  temperature:
+  - 27
+tests:
+- name: post_layout
+  template: judge/tests/post_layout.cir
+  timeout: 30
+  sweep:
+    corner: all
+    temperature: all
+  measurements:
+  - name: reference_current
+    unit: A
+    minimum: 1.0e-09
+    maximum: 0.02
+  - name: output_current
+    unit: A
+    minimum: 1.0e-09
+    maximum: 0.02
+  - name: current_error
+    unit: ratio
+    minimum: 0
+    maximum: 1.0
+score:
+  strategy: inverse_worst
+  measurement: current_error
+  scale: 1.0

@@ -62,6 +62,34 @@ class CharacterizationJudge:
         )
         return JudgeResult(accepted, score, tuple(measurements), message)
 
+    def judge_extracted(
+        self, netlist: str, fixture_path: str, config: dict[str, object]
+    ) -> JudgeResult:
+        """Characterize a server-generated PEX netlist after DRC and LVS."""
+
+        try:
+            challenge_root = (self.challenges_path / fixture_path).resolve()
+            challenge_root.relative_to(self.challenges_path.resolve())
+            definition_path = config.get("post_layout_definition")
+            if not isinstance(definition_path, str):
+                raise ValueError("layout challenge is missing post_layout_definition")
+            definition = load_definition(challenge_root, definition_path)
+            measurements = self._run_definition(definition, netlist)
+            accepted = all(item.passed for item in measurements)
+            score = self._score(definition, measurements) if accepted else 0.0
+        except subprocess.TimeoutExpired as error:
+            return JudgeResult(
+                False, 0.0, message=f"post-layout ngspice timed out after {error.timeout:g}s"
+            )
+        except (OSError, ValueError) as error:
+            return JudgeResult(False, 0.0, message=str(error))
+        message = (
+            "SG13G2 post-layout characterization passed"
+            if accepted
+            else "One or more post-layout simulation limits failed"
+        )
+        return JudgeResult(accepted, score, tuple(measurements), message)
+
     def _run_definition(
         self, definition: CharacterizationDefinition, netlist: str
     ) -> list[Measurement]:

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from .characterization import CharacterizationJudge
 from .magic import MagicRunner
 from .netgen import NetgenRunner
 from .result import JudgeResult, Measurement
@@ -107,7 +108,35 @@ class LayoutJudge:
                             expected_pins,
                         ),
                     )
-                magic.extract_pex(gds, expected_top, work, str(config.get("pex_mode", "coupled_c")))
+                pex = magic.extract_pex(
+                    gds, expected_top, work, str(config.get("pex_mode", "coupled_c"))
+                )
+                electrical = CharacterizationJudge(
+                    challenges_path=self.challenges_path,
+                    pdk_root=self.pdk_root,
+                ).judge_extracted(
+                    self._normalize_pex_pins(
+                        pex.read_text(encoding="utf-8", errors="replace"),
+                        expected_top,
+                        expected_pins,
+                    ),
+                    fixture_path,
+                    config,
+                )
+                if not electrical.accepted:
+                    return JudgeResult(
+                        False,
+                        0.0,
+                        (
+                            Measurement("bounding_box_area", round(area, 6), "um^2", True),
+                            Measurement("cell_count", float(cell_count), "cells", True),
+                            Measurement("drc", 0.0, "violations", True),
+                            Measurement("lvs", 1.0, "match", True),
+                            Measurement("pex", 1.0, "extracted", True),
+                            *electrical.measurements,
+                        ),
+                        electrical.message,
+                    )
         except subprocess.TimeoutExpired:
             return JudgeResult(
                 False,
@@ -123,9 +152,15 @@ class LayoutJudge:
             Measurement("drc", 0.0, "violations", True),
             Measurement("lvs", 1.0, "match", True),
             Measurement("pex", 1.0, "extracted", True),
+            *electrical.measurements,
         )
-        score = round(1_000.0 / max(area, 0.001), 6)
-        return JudgeResult(True, score, measurements, "SG13G2 DRC and strict LVS passed")
+        score = round(electrical.score * 1_000.0 / max(area, 0.001), 6)
+        return JudgeResult(
+            True,
+            score,
+            measurements,
+            "SG13G2 DRC, LVS, PEX, and post-layout characterization passed",
+        )
 
     def _run(self, command: list[str], stage: str) -> None:
         completed = subprocess.run(
@@ -160,6 +195,13 @@ class LayoutJudge:
         if area <= 0:
             raise ValueError("layout area is not positive")
         return area, layout.cells()
+
+    @staticmethod
+    def _normalize_pex_pins(netlist: str, top: str, pins: list[str]) -> str:
+        pattern = re.compile(rf"^\.subckt\s+{re.escape(top)}\s+.+$", re.IGNORECASE | re.MULTILINE)
+        if pattern.search(netlist) is None:
+            raise ValueError("PEX netlist is missing the expected top-level subcircuit")
+        return pattern.sub(f".subckt {top} {' '.join(pins)}", netlist, count=1)
 
     @staticmethod
     def _drc_failure(output: str) -> str:

@@ -77,6 +77,23 @@ FAMILY_BENCHES = {
         ],
         "score": ("inverse_worst", "output_imbalance", None, 1.0),
     },
+    "layout_differential": {
+        "sources": (
+            "VDD vdd 0 1.2\nVINP inp 0 0.7\nVINN inn 0 0.7\nVTAIL tail 0 0\n"
+            "RLP vdd outp 20k\nRLN vdd outn 20k"
+        ),
+        "instance": "XDUT inp inn outp outn tail 0 {subckt}",
+        "control": (
+            "op\nlet output_common_mode=(v(outp)+v(outn))/2\n"
+            "let output_imbalance=abs(v(outp)-v(outn))\nlet supply_current=abs(i(VDD))"
+        ),
+        "measurements": [
+            ("output_common_mode", "V", 0.001, 1.199),
+            ("output_imbalance", "V", 0, 0.1),
+            ("supply_current", "A", 1e-9, 0.05),
+        ],
+        "score": ("inverse_worst", "output_imbalance", None, 1.0),
+    },
     "ota": {
         "sources": "VDD vdd 0 1.2\nVINP inp 0 0.6\nVINN inn 0 0.6",
         "instance": "XDUT inp inn out vdd 0 {subckt}",
@@ -453,6 +470,13 @@ PHYSICAL = [
     ),
 ]
 
+PHYSICAL_FAMILIES = {
+    "multifinger_mos": "device",
+    "current_mirror": "mirror",
+    "common_centroid_pair": "layout_differential",
+    "ota5": "ota",
+}
+
 
 def xschem_symbol(top: str, pins: list[str]) -> str:
     lines = [
@@ -541,6 +565,46 @@ def characterization_files(root: Path, subckt: str, family: str, reference: str)
     write(root / "judge" / "reference.spice", reference)
 
 
+def post_layout_files(root: Path, subckt: str, family: str) -> None:
+    bench = FAMILY_BENCHES[family]
+    measurements = [
+        {"name": name, "unit": unit, "minimum": minimum, "maximum": maximum}
+        for name, unit, minimum, maximum in bench["measurements"]
+    ]
+    strategy, measurement, denominator, scale = bench["score"]
+    score = {"strategy": strategy, "measurement": measurement, "scale": scale}
+    if denominator:
+        score["denominator"] = denominator
+    definition = {
+        "version": 1,
+        "conditions": {"corner": ["tt"], "temperature": [27]},
+        "tests": [
+            {
+                "name": "post_layout",
+                "template": "judge/tests/post_layout.cir",
+                "timeout": 30,
+                "sweep": {"corner": "all", "temperature": "all"},
+                "measurements": measurements,
+            }
+        ],
+        "score": score,
+    }
+    echoes = "\n".join(
+        f"echo {item['name']} $$&{item['name']} {'>' if index == 0 else '>>'} results.data"
+        for index, item in enumerate(measurements)
+    )
+    deck = (
+        ".lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}\n"
+        ".include submission.spice\n"
+        ".temp ${temperature}\n"
+        f"{bench['sources']}\n{str(bench['instance']).format(subckt=subckt)}\n"
+        ".control\n"
+        f"{bench['control']}\n{echoes}\nquit\n.endc\n.end\n"
+    )
+    write(root / "judge" / "post_layout.yaml", yaml.safe_dump(definition, sort_keys=False))
+    write(root / "judge" / "tests" / "post_layout.cir", deck)
+
+
 def main() -> None:
     for slug, title, track, difficulty, profile, family, pins, body in ELECTRICAL:
         root = ROOT / slug
@@ -594,6 +658,7 @@ def main() -> None:
 
     for slug, title, top, pins, devices in PHYSICAL:
         root = ROOT / slug
+        family = PHYSICAL_FAMILIES[top]
         manifest = {
             "schema_version": 2,
             "slug": slug,
@@ -601,12 +666,17 @@ def main() -> None:
             "summary": f"Create a compact DRC-clean, LVS-correct {title.lower()} in SG13G2.",
             "track": "Physical Design",
             "difficulty": "advanced",
-            "verification_version": 1,
+            "verification_version": 2,
             "specification_file": "specification.md",
             "interface": {"top_cell": top, "pins": pins},
             "submission": {"kind": "gds", "maximum_bytes": 8388608, "extensions": [".gds"]},
             "judge_backend": "klayout",
-            "judge_config": {"reference_netlist": "reference/design.spice", "drc_density": False},
+            "judge_config": {
+                "reference_netlist": "reference/design.spice",
+                "drc_density": False,
+                "pex_mode": "coupled_c",
+                "post_layout_definition": "judge/post_layout.yaml",
+            },
             "assets": [
                 {
                     "id": "schematic",
@@ -628,8 +698,8 @@ def main() -> None:
         reference = f".subckt {top} {' '.join(pins)}\n{devices}\n.ends {top}\n"
         spec = (
             f"# {title}\n\nSubmit one raw GDSII file with exactly one top cell named `{top}` and labeled pins "
-            f"{', '.join(f'`{pin}`' for pin in pins)}. The judge runs the pinned IHP maximal DRC deck without density, "
-            "then strict LVS against a private reference. Score is `1000 / bounding-box area in um^2`. "
+            f"{', '.join(f'`{pin}`' for pin in pins)}. The judge runs Magic full DRC, Netgen LVS against a private reference, "
+            "Magic coupled-capacitance PEX, and a private ngspice post-layout operating-point test. Score combines electrical merit and compactness. "
             "For matching-oriented challenges, DRC/LVS verifies legality and connectivity; geometric common-centroid quality is a documented design objective, not yet a scored proof.\n"
         )
         write(root / "challenge.json", json.dumps(manifest, indent=2) + "\n")
@@ -637,6 +707,11 @@ def main() -> None:
         write(root / "starter.sch", xschem_schematic(top, pins))
         write(root / "starter.sym", xschem_symbol(top, pins))
         write(root / "reference" / "design.spice", reference)
+        simulation_reference = "\n".join(
+            f"X{line[1:]}" if line.startswith("M") else line for line in reference.splitlines()
+        )
+        write(root / "judge" / "simulation_reference.spice", simulation_reference + "\n")
+        post_layout_files(root, top, family)
 
 
 if __name__ == "__main__":

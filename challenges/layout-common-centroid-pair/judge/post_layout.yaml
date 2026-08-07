@@ -1,0 +1,30 @@
+version: 1
+conditions:
+  corner:
+  - tt
+  temperature:
+  - 27
+tests:
+- name: post_layout
+  template: judge/tests/post_layout.cir
+  timeout: 30
+  sweep:
+    corner: all
+    temperature: all
+  measurements:
+  - name: output_common_mode
+    unit: V
+    minimum: 0.001
+    maximum: 1.199
+  - name: output_imbalance
+    unit: V
+    minimum: 0
+    maximum: 0.1
+  - name: supply_current
+    unit: A
+    minimum: 1.0e-09
+    maximum: 0.05
+score:
+  strategy: inverse_worst
+  measurement: output_imbalance
+  scale: 1.0

@@ -5,7 +5,7 @@
   "summary": "Create a compact DRC-clean, LVS-correct matched current mirror layout in SG13G2.",
   "track": "Physical Design",
   "difficulty": "advanced",
-  "verification_version": 1,
+  "verification_version": 2,
   "specification_file": "specification.md",
   "interface": {
     "top_cell": "current_mirror",
@@ -25,7 +25,9 @@
   "judge_backend": "klayout",
   "judge_config": {
     "reference_netlist": "reference/design.spice",
-    "drc_density": false
+    "drc_density": false,
+    "pex_mode": "coupled_c",
+    "post_layout_definition": "judge/post_layout.yaml"
   },
   "assets": [
     {

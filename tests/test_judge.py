@@ -389,3 +389,10 @@ def test_layout_judge_reports_missing_pins_first(tmp_path: Path) -> None:
         )
         == "LVS mismatch; missing top-level pins: vss"
     )
+
+
+def test_layout_judge_normalizes_pex_pin_order() -> None:
+    netlist = ".subckt inverter vdd in out vss\nX1 out in vss vss nmos\n.ends\n"
+    assert LayoutJudge._normalize_pex_pins(
+        netlist, "inverter", ["in", "out", "vdd", "vss"]
+    ).startswith(".subckt inverter in out vdd vss\n")

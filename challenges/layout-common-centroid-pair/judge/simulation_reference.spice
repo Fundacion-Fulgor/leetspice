@@ -1,0 +1,4 @@
+.subckt common_centroid_pair inp inn outp outn tail vss
+X1 outp inp tail vss sg13_lv_nmos W=4u L=0.5u ng=4 m=1
+X2 outn inn tail vss sg13_lv_nmos W=4u L=0.5u ng=4 m=1
+.ends common_centroid_pair
