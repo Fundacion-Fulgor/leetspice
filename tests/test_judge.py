@@ -316,39 +316,22 @@ def test_layout_judge_requires_lvs_success_marker(
     reference = challenge / "reference"
     reference.mkdir(parents=True)
     (reference / "inverter.spice").write_text(".subckt inverter in out vdd vss\n.ends\n")
-    pdk = tmp_path / "pdk" / "ihp-sg13g2" / "libs.tech" / "klayout" / "tech"
-    for runner in (pdk / "drc" / "run_drc.py", pdk / "lvs" / "run_lvs.py"):
-        runner.parent.mkdir(parents=True, exist_ok=True)
-        runner.write_text("# runner\n")
-    macro = Path("/app/scripts/inspect-layout.rb")
-    original_is_file = Path.is_file
+    pdk_root = tmp_path / "pdk"
+    magicrc = pdk_root / "ihp-sg13g2/libs.tech/magic/ihp-sg13g2.magicrc"
+    setup = pdk_root / "ihp-sg13g2/libs.tech/netgen/ihp-sg13g2_setup.tcl"
+    magicrc.parent.mkdir(parents=True)
+    setup.parent.mkdir(parents=True)
+    magicrc.write_text("rc")
+    setup.write_text("setup")
+    monkeypatch.setattr("leetspice.judge.layout.LayoutJudge._inspect", lambda *_args: (12.5, 1))
+    monkeypatch.setattr("leetspice.judge.layout.MagicRunner.drc", lambda *_args: 0)
+    extracted = tmp_path / "extracted.spice"
+    extracted.write_text(".subckt inverter in out vdd vss\n.ends inverter\n")
+    monkeypatch.setattr("leetspice.judge.layout.MagicRunner.extract_lvs", lambda *_args: extracted)
     monkeypatch.setattr(
-        Path, "is_file", lambda self: True if self == macro else original_is_file(self)
+        "leetspice.judge.layout.NetgenRunner.lvs",
+        lambda *_args: (_ for _ in ()).throw(ValueError("mismatch")),
     )
-
-    def fake_run(
-        command: list[str], *_args: object, **_kwargs: object
-    ) -> subprocess.CompletedProcess:
-        values = {part.split("=", 1)[0]: part.split("=", 1)[1] for part in command if "=" in part}
-        if "output" in values:
-            Path(values["output"]).write_text("top_cell: inverter\narea_um2: 12.5\ncell_count: 1\n")
-        elif any("run_drc.py" in part for part in command):
-            run_dir = Path(
-                next(part.split("=", 1)[1] for part in command if part.startswith("--run_dir="))
-            )
-            run_dir.mkdir()
-            (run_dir / "result.lyrdb").write_text("result")
-        else:
-            run_dir = Path(
-                next(part.split("=", 1)[1] for part in command if part.startswith("--run_dir="))
-            )
-            run_dir.mkdir()
-            (run_dir / "result.lvsdb").write_text("result")
-            (run_dir / "result_extracted.cir").write_text("result")
-            (run_dir / "result.log").write_text("ERROR : Netlists don't match")
-        return subprocess.CompletedProcess(command, 0, "")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
     result = LayoutJudge(challenges_path=tmp_path / "challenges", pdk_root=tmp_path / "pdk").judge(
         b"gds",
         "inverter",
