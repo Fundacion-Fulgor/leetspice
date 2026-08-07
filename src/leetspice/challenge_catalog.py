@@ -10,12 +10,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .judge.profile import PROFILE_LIMITS
 from .models import Challenge
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.$-]*$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-BACKENDS = {"cace", "characterization", "klayout", "profile"}
+BACKENDS = {"characterization", "klayout"}
 KINDS = {"netlist", "gds"}
 DIFFICULTIES = {"introductory", "intermediate", "advanced", "capstone"}
 
@@ -100,11 +99,6 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         post_layout = judge_config.get("post_layout_definition")
         if not isinstance(post_layout, str) or not (path / post_layout).is_file():
             raise ValueError(f"{source}: private post-layout definition is missing")
-    if backend == "profile":
-        if not isinstance(judge_config.get("profile"), str):
-            raise ValueError(f"{source}: profile backend requires judge_config.profile")
-        if judge_config.get("family") not in PROFILE_LIMITS:
-            raise ValueError(f"{source}: profile backend has an invalid family")
     if backend == "characterization":
         definition = judge_config.get("definition")
         if not isinstance(definition, str) or not (path / definition).is_file():

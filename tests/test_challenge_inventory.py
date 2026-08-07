@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 from leetspice.challenge_catalog import _read_package
-from leetspice.judge.profile import ProfileJudge
 from leetspice.judge.validator import validate_netlist
 
 CHALLENGES = Path(__file__).parents[1] / "challenges"
@@ -46,21 +45,6 @@ def test_challenge_library_is_complete_and_valid() -> None:
             assert (source.parent / manifest["judge_config"]["post_layout_definition"]).is_file()
             assert (source.parent / "judge/simulation_reference.spice").is_file()
     assert tracks == REQUIRED_TRACKS
-
-
-def test_profile_starters_pass_their_profile() -> None:
-    judge = ProfileJudge()
-    for source in sorted(CHALLENGES.glob("*/challenge.json")):
-        _, values = _read_package(source.parent)
-        if values["judge_backend"] != "profile":
-            continue
-        result = judge.judge(
-            values["starter_netlist"],
-            values["expected_subckt"],
-            values["expected_pins"],
-            values["judge_config"],
-        )
-        assert result.accepted, f"{source.parent.name}: {result.message}"
 
 
 def test_all_netlist_challenges_use_real_characterization() -> None:

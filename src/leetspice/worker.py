@@ -21,13 +21,11 @@ from typing import Any
 from sqlalchemy import select
 
 from .judge import (
-    CaceJudge,
     CharacterizationJudge,
     JudgeResult,
     LayoutJudge,
     MockJudge,
     NgspiceJudge,
-    ProfileJudge,
 )
 
 LOGGER = logging.getLogger("leetspice.worker")
@@ -130,11 +128,6 @@ def _judge(job: Any, backend: Any) -> tuple[JudgeResult, str]:
             dict(challenge.judge_config),
         )
         return result, type(layout_backend).__name__
-    if challenge is not None and getattr(challenge, "judge_backend", None) == "profile":
-        profile_backend = ProfileJudge()
-        netlist, subckt, pins = _payload(job)
-        result = profile_backend.judge(netlist, subckt, pins, dict(challenge.judge_config))
-        return result, type(profile_backend).__name__
     if challenge is not None and getattr(challenge, "judge_backend", None) == "characterization":
         characterization_backend = CharacterizationJudge()
         netlist, subckt, pins = _payload(job)
@@ -298,7 +291,7 @@ def discover_contract() -> tuple[Callable[[], Any], type[Any]]:
     return session_factory, model
 
 
-def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge | CaceJudge:
+def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge:
     selected = (
         name or os.getenv("LEETSPICE_JUDGE_BACKEND") or os.getenv("RUNNER_BACKEND", "mock")
     ).casefold()
@@ -309,8 +302,6 @@ def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge | Ca
             executable=os.getenv("LEETSPICE_NGSPICE", "ngspice"),
             timeout=float(os.getenv("LEETSPICE_JUDGE_TIMEOUT", "10")),
         )
-    if selected == "cace":
-        return CaceJudge(timeout=float(os.getenv("LEETSPICE_JUDGE_TIMEOUT", "120")))
     raise ValueError(f"unknown judge backend: {selected}")
 
 
@@ -341,7 +332,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--backend",
-        choices=("mock", "ngspice", "cace"),
+        choices=("mock", "ngspice"),
         help="override configured backend",
     )
     args = parser.parse_args(argv)

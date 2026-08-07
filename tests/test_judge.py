@@ -8,7 +8,6 @@ from sqlalchemy import JSON, Float, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from leetspice.judge import (
-    CaceJudge,
     CharacterizationJudge,
     JudgeResult,
     LayoutJudge,
@@ -246,7 +245,6 @@ def test_backend_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LEETSPICE_JUDGE_BACKEND")
     monkeypatch.setenv("RUNNER_BACKEND", "ngspice")
     assert isinstance(configured_backend(), NgspiceJudge)
-    assert isinstance(configured_backend("cace"), CaceJudge)
     assert isinstance(configured_backend("ngspice"), NgspiceJudge)
     with pytest.raises(ValueError, match="unknown"):
         configured_backend("other")
@@ -283,30 +281,6 @@ def test_worker_dispatches_characterization_challenge(monkeypatch: pytest.Monkey
     assert result.accepted
     assert backend_name == "CharacterizationJudge"
     assert observed["fixture_path"] == "inverter"
-
-
-def test_cace_collects_pvt_measurements(tmp_path: Path) -> None:
-    run = tmp_path / "RUN_test" / "parameters" / "timing" / "run_0"
-    run.mkdir(parents=True)
-    (run / "conditions.yaml").write_text("corner: ss\ntemperature: 125\n", encoding="utf-8")
-    (run / "timing_0.data").write_text(
-        "40e-12 37e-12 55e-12 52e-12 -2.13e-6 1e-6 1.2\n",
-        encoding="utf-8",
-    )
-
-    measurements = CaceJudge._collect(tmp_path)
-
-    assert len(measurements) == 7
-    assert measurements[0].name == "tphl_ss_125C"
-    assert measurements[0].value == 40.0
-    assert measurements[4].value == 2.13
-    assert all(measurement.passed for measurement in measurements)
-
-
-def test_cace_schematic_embeds_validated_submission() -> None:
-    schematic = CaceJudge._schematic(VALID_INVERTER)
-    assert VALID_INVERTER.strip() in schematic
-    assert "devices/code_shown.sym" in schematic
 
 
 def test_layout_judge_requires_lvs_success_marker(

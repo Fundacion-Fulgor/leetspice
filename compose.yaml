@@ -25,7 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
       SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
-      RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
+      RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       PDK_ROOT: /opt/IHP-Open-PDK
       PDK: ihp-sg13g2
@@ -48,7 +48,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
       SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
-      RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
+      RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       WORKER_DATA_DIR: /var/lib/leetspice
       PDK_ROOT: /opt/IHP-Open-PDK

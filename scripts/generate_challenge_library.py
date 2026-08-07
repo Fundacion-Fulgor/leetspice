@@ -606,10 +606,9 @@ def post_layout_files(root: Path, subckt: str, family: str) -> None:
 
 
 def main() -> None:
-    for slug, title, track, difficulty, profile, family, pins, body in ELECTRICAL:
+    for slug, title, track, difficulty, _legacy_profile, family, pins, body in ELECTRICAL:
         root = ROOT / slug
         summary = f"Design and optimize an IHP SG13G2 {title.lower()} across server-owned checks."
-        has_characterization = family in FAMILY_BENCHES
         manifest = {
             "schema_version": 2,
             "slug": slug,
@@ -617,17 +616,13 @@ def main() -> None:
             "summary": summary,
             "track": track,
             "difficulty": difficulty,
-            "verification_version": 2 if has_characterization else 1,
+            "verification_version": 2,
             "starter_file": "starter.cir",
             "specification_file": "specification.md",
             "interface": {"subckt": slug.replace("-", "_"), "pins": pins},
             "submission": {"kind": "netlist"},
-            "judge_backend": "characterization" if has_characterization else "profile",
-            "judge_config": (
-                {"definition": "judge/definition.yaml"}
-                if has_characterization
-                else {"profile": profile, "family": family}
-            ),
+            "judge_backend": "characterization",
+            "judge_config": {"definition": "judge/definition.yaml"},
             "score_unit": "points",
             "lower_is_better": False,
             "is_active": True,
@@ -638,14 +633,8 @@ def main() -> None:
             "A private, server-owned ngspice testbench loads the pinned SG13G2 compact models "
             "and measures the documented public-terminal operating point. The checked-in private "
             "reference passes these limits in the production image."
-            if has_characterization
-            else "Server-owned profile checks enforce circuit-family structure, device mix, and sizing bounds."
         )
-        scoring = (
-            "The score is calculated from the measured electrical quantities after all hard limits pass."
-            if has_characterization
-            else "Fewer devices and smaller total gate width improve score after all hard limits pass."
-        )
+        scoring = "The score is calculated from measured quantities after all hard limits pass."
         spec = (
             f"# {title}\n\n{summary}\n\n"
             f"Submit exactly one `.subckt {subckt} {' '.join(pins)}` using SG13G2 low-voltage MOS devices, resistors, and capacitors. "

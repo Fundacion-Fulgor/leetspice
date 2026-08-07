@@ -37,7 +37,7 @@ class Challenge(Base):
     expected_pins: Mapped[list[str]] = mapped_column(JSON, default=list)
     starter_netlist: Mapped[str] = mapped_column(Text, default="")
     submission_kind: Mapped[str] = mapped_column(String(30), default="netlist")
-    judge_backend: Mapped[str] = mapped_column(String(80), default="cace")
+    judge_backend: Mapped[str] = mapped_column(String(80), default="ngspice")
     submission_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     judge_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     fixture_path: Mapped[str | None] = mapped_column(String(255), nullable=True)

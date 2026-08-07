@@ -6,9 +6,9 @@ LeetSpice is a **Fulgor Foundation** project.
 
 ## Current status
 
-The current PoC implements local account registration and login, a 31-challenge catalog, constrained SPICE and bounded GDSII submissions, asynchronous judging, result pages, and per-challenge leaderboards. The inverter runs CACE/ngspice across SG13G2 PVT corners. Five physical-design challenges run the IHP KLayout DRC and LVS decks against server-owned references. The remaining electrical library uses structural profile verification while dedicated analog testbenches are developed.
+The current PoC implements local accounts, a 31-challenge catalog, constrained SPICE and bounded GDSII submissions, asynchronous judging, private submission history, per-challenge rankings, and a difficulty-weighted global leaderboard. All 26 electrical challenges run private direct-ngspice testbenches with pinned SG13G2 compact models. The inverter runs nine PVT transient points; several advanced placeholder references currently have narrower real operating-point checks and do not yet claim complete gain, noise, stability, startup, or temperature-coefficient characterization. Five physical challenges run KLayout top-cell inspection, Magic full DRC, Netgen LVS, Magic PEX, and private post-layout ngspice tests.
 
-The PoC intentionally does **not** launch a container for each submission. The worker is a prestarted, long-lived process. The checked-in local configuration enables real CACE and KLayout verification for controlled first-party use. See [Security](docs/security.md): this worker is not safe for hostile netlists or GDS files.
+The PoC intentionally does **not** launch a container for each submission. The worker is a prestarted, long-lived process. The checked-in configuration enables real native EDA verification for controlled first-party use. See [Security](docs/security.md): this worker is not safe for hostile netlists or GDS files.
 
 ## Podman quick start
 
@@ -103,10 +103,10 @@ Configuration is environment-driven. `.env.example` documents the Compose inputs
 | --- | --- | --- |
 | `DATABASE_URL` | SQLAlchemy PostgreSQL connection used by web and worker | Constructed by Compose |
 | `SECRET_KEY` | Application signing secret | Insecure development value |
-| `RUNNER_BACKEND` | Netlist runner selection: `mock`, `ngspice`, or `cace` | `cace` |
+| `RUNNER_BACKEND` | Legacy/fallback netlist runner: `mock` or `ngspice`; manifests select production judges | `ngspice` |
 | `CHALLENGES_PATH` | Challenge fixture directory | `/app/challenges` in containers |
 | `WORKER_DATA_DIR` | Persistent worker scratch/state location | `/var/lib/leetspice` in the worker |
-| `LEETSPICE_JUDGE_TIMEOUT` | CACE/ngspice wall-clock timeout | `120` seconds |
+| `LEETSPICE_JUDGE_TIMEOUT` | ngspice wall-clock timeout | `120` seconds |
 | `LEETSPICE_LAYOUT_TIMEOUT` | Per-stage KLayout wall-clock timeout | `300` seconds |
 | `POSTGRES_*` | Database name, user, password, and published port | See `.env.example` |
 | `WEB_PORT` | Published web port | `8000` |
@@ -117,7 +117,7 @@ Generate a development secret with `python -c "import secrets; print(secrets.tok
 
 Every directory below `challenges/` is a strict manifest package. Startup validates its interface, submission kind, backend, specification, starter, public assets, and private references before seeding PostgreSQL. The catalog covers MOS foundations, gain stages, biasing, differential circuits, op amps, dynamic circuits, references, physical design, and capstones. Only manifest-listed assets are downloadable; the application does not expose whole challenge directories.
 
-Netlists are validated before either CACE embeds them in a server-owned testbench or a profile judge checks circuit-family structure, connectivity, device mix, sizing bounds, and compactness. Profile checks do not yet measure gain, noise, stability, temperature coefficient, or oscillator performance. GDSII uploads are limited to 8 MiB and stored as immutable binary payloads with SHA-256 metadata. The layout judge requires exactly one configured top cell, runs IHP SG13G2 DRC in deep mode without density checks, and performs strict LVS including top-level pins. Accepted layouts score `1000 / bounding-box area in um^2`. These controls constrain inputs but do not sandbox the native EDA tools.
+Netlists are validated before inclusion in private server-owned ngspice decks. Definitions declare test conditions, expected finite measurements, limits, timeouts, and allowlisted score strategies. GDSII uploads are limited to 8 MiB and stored as immutable binary payloads with SHA-256 metadata. The layout judge requires exactly one configured top cell, runs Magic full DRC and Netgen LVS, generates coupled-C or full-RC PEX, then runs a private ngspice deck. Layout score combines electrical merit and compactness. These controls constrain inputs but do not sandbox native EDA tools.
 
 ## Authentication scope
 
