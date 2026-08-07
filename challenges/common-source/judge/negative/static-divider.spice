@@ -1,0 +1,4 @@
+.subckt common_source in out vdd vss
+RUP vdd out 20k
+RDOWN out vss 20k
+.ends common_source
