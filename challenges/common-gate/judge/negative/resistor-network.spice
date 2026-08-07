@@ -1,0 +1,5 @@
+.subckt common_gate in out bias vdd vss
+RIN in vss 10k
+RUP vdd out 20k
+RDOWN out vss 20k
+.ends common_gate

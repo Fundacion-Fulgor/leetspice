@@ -1,9 +1,14 @@
-version: 1
+version: 2
+execution: {maximum_runs: 9, total_timeout: 60}
 conditions:
   corner:
   - tt
+  - ss
+  - ff
   temperature:
+  - -40
   - 27
+  - 125
 tests:
 - name: functional
   template: judge/tests/functional.cir
@@ -14,14 +19,28 @@ tests:
   measurements:
   - name: output_voltage
     unit: V
-    minimum: 0.001
-    maximum: 1.199
+    minimum: 0.35
+    maximum: 0.45
+  - name: input_voltage
+    unit: V
+    minimum: 0
+    maximum: 0.36
   - name: supply_current
     unit: A
-    minimum: 1.0e-09
-    maximum: 0.02
+    minimum: 1.0e-07
+    maximum: 0.0001
+  - name: input_resistance
+    unit: ohm
+    minimum: 1
+    maximum: 15000
+  - name: voltage_gain
+    unit: V/V
+    minimum: 1.4
+  - name: bandwidth
+    unit: Hz
+    minimum: 60000000
 score:
-  strategy: efficiency
-  measurement: output_voltage
-  scale: 1.0e-06
-  denominator: supply_current
+  objectives:
+  - {measurement: voltage_gain, direction: maximize, aggregation: minimum, normalization: 2}
+  - {measurement: bandwidth, direction: maximize, aggregation: minimum, normalization: 70000000}
+  - {measurement: input_resistance, direction: minimize, aggregation: maximum, normalization: 10000}

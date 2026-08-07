@@ -2,15 +2,29 @@
 .include submission.spice
 .temp ${temperature}
 VDD vdd 0 1.2
-VIN in 0 0.2
-VBIAS bias 0 0.7
+IIN in 0 DC 40u AC 1
+VBIAS bias 0 0.75
+CLOAD out 0 100f
 XDUT in out bias vdd 0 common_gate
 .control
 op
 let output_voltage=v(out)
+let input_voltage=v(in)
 let supply_current=abs(i(VDD))
-echo output_voltage $$&output_voltage > results.data
-echo supply_current $$&supply_current >> results.data
+ac dec 20 1 100g
+let input_resistance=mag(v(in))
+let transimpedance=mag(v(out))
+let voltage_gain=transimpedance/max(input_resistance,1e-30)
+let gain_3db=transimpedance[0]/sqrt(2)
+meas ac bandwidth WHEN transimpedance=gain_3db FALL=1
+let input_resistance_low=input_resistance[0]
+let voltage_gain_low=voltage_gain[0]
+echo output_voltage $$&op1.output_voltage > results.data
+echo input_voltage $$&op1.input_voltage >> results.data
+echo supply_current $$&op1.supply_current >> results.data
+echo input_resistance $$&input_resistance_low >> results.data
+echo voltage_gain $$&voltage_gain_low >> results.data
+echo bandwidth $$&bandwidth >> results.data
 quit
 .endc
 .end
