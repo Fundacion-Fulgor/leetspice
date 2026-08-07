@@ -139,6 +139,46 @@ def test_submission_keeps_flat_results_for_non_pvt_backend(client, register):
     assert 'aria-label="Process corner"' not in response.text
 
 
+def test_my_submissions_is_private_filtered_and_versioned(client, register):
+    assert client.get("/submissions", follow_redirects=False).headers["location"] == "/login"
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
+        challenge.verification_version = 2
+        session.add_all(
+            [
+                Submission(
+                    user_id=user.id,
+                    challenge_id=challenge.id,
+                    verification_version=challenge.verification_version,
+                    netlist="accepted",
+                    status="accepted",
+                    score=10,
+                ),
+                Submission(
+                    user_id=user.id,
+                    challenge_id=challenge.id,
+                    verification_version=1,
+                    netlist="failed",
+                    status="failed",
+                ),
+            ]
+        )
+        session.commit()
+
+    response = client.get("/submissions")
+    assert response.status_code == 200
+    assert "My submissions" in response.text
+    assert response.text.count("history-row") == 2
+    assert "OLDER VERIFICATION v1" in response.text
+    accepted = client.get("/submissions?status=accepted")
+    assert accepted.text.count("history-row") == 1
+    assert "ACCEPTED" in accepted.text
+    assert "FAILED" not in accepted.text
+    assert client.get("/submissions?status=unknown").status_code == 404
+
+
 def test_leaderboard_uses_each_users_best_accepted_score(client, register):
     register(email="first@example.com", name="First")
     register(email="second@example.com", name="Second")

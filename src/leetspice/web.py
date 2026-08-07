@@ -6,7 +6,17 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -18,6 +28,7 @@ from .leaderboards import global_leaderboard
 from .models import Challenge, Submission, User
 
 router = APIRouter()
+SUBMISSIONS_PAGE_SIZE = 25
 templates = Jinja2Templates(
     directory=str(__import__("pathlib").Path(__file__).parent / "templates")
 )
@@ -348,6 +359,54 @@ def _pvt_results(submission: Submission) -> list[dict[str, object]]:
         for corner in ("ss", "tt", "ff")
         if (corner_results := grouped.get(corner))
     ]
+
+
+@router.get("/submissions", response_class=HTMLResponse)
+def my_submissions(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    status_filter: Annotated[str, Query(alias="status")] = "all",
+) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    filters = {
+        "all": (),
+        "active": ("queued", "running"),
+        "accepted": ("accepted",),
+        "failed": ("failed", "rejected"),
+    }
+    if status_filter not in filters:
+        raise HTTPException(status_code=404)
+    conditions = [Submission.user_id == user.id]
+    if filters[status_filter]:
+        conditions.append(Submission.status.in_(filters[status_filter]))
+    total = db.scalar(select(func.count(Submission.id)).where(*conditions)) or 0
+    page_count = max(1, (total + SUBMISSIONS_PAGE_SIZE - 1) // SUBMISSIONS_PAGE_SIZE)
+    if page > page_count:
+        raise HTTPException(status_code=404)
+    submissions = db.scalars(
+        select(Submission)
+        .options(selectinload(Submission.challenge))
+        .where(*conditions)
+        .order_by(Submission.created_at.desc(), Submission.id.desc())
+        .offset((page - 1) * SUBMISSIONS_PAGE_SIZE)
+        .limit(SUBMISSIONS_PAGE_SIZE)
+    ).all()
+    return templates.TemplateResponse(
+        request,
+        "my_submissions.html",
+        _context(
+            request,
+            db,
+            submissions=submissions,
+            page=page,
+            page_count=page_count,
+            status_filter=status_filter,
+            total=total,
+        ),
+    )
 
 
 @router.get("/submissions/{submission_id}", response_class=HTMLResponse)

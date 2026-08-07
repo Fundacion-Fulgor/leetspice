@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}My Submissions · LeetSpice{% endblock %}
+{% block content %}
+<section class="challenge-title"><div><p class="eyebrow">PRIVATE RUN ARCHIVE</p><h1>My submissions</h1></div><div class="metric"><span>RECORDED</span><strong>{{ total }} RUNS</strong></div></section>
+<nav class="submission-filters" aria-label="Submission status">{% for value, label in [('all', 'All'), ('active', 'Active'), ('accepted', 'Accepted'), ('failed', 'Failed')] %}<a href="/submissions?status={{ value }}"{% if status_filter == value %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+<section class="panel submission-history">
+  <div class="panel-head"><h2>Verification history</h2><span>NEWEST FIRST</span></div>
+  <div class="history-table" role="table" aria-label="My submissions">
+    {% for submission in submissions %}<a class="history-row" role="row" href="/submissions/{{ submission.id }}"><span class="history-run">RUN-{{ "%05d"|format(submission.id) }}</span><strong>{{ submission.challenge.title }}</strong><span>{{ submission.challenge.difficulty }}</span><span>{{ submission.submission_kind|upper }}</span><span class="history-status {{ submission.status }}">{{ submission.status|upper }}</span><span>{% if submission.score is not none %}{{ "%.6g"|format(submission.score) }} {{ submission.challenge.score_unit }}{% else %}—{% endif %}</span><time>{{ submission.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</time>{% if submission.verification_version != submission.challenge.verification_version %}<small>OLDER VERIFICATION v{{ submission.verification_version }}</small>{% endif %}</a>{% else %}<p class="empty">No submissions match this filter.</p>{% endfor %}
+  </div>
+  {% if page_count > 1 %}<nav class="pagination" aria-label="Submission pages">{% if page > 1 %}<a href="/submissions?page={{ page - 1 }}&status={{ status_filter }}">← Newer</a>{% endif %}<span>PAGE {{ page }} / {{ page_count }}</span>{% if page < page_count %}<a href="/submissions?page={{ page + 1 }}&status={{ status_filter }}">Older →</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}
