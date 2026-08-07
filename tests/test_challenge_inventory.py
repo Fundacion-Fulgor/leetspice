@@ -32,6 +32,10 @@ def test_challenge_library_is_complete_and_valid() -> None:
         assert values["title"]
         assert values["description"]
         assert values["verification_version"] >= 1
+        assert values["curriculum_order"] >= 0
+        assert isinstance(values["is_ranked"], bool)
+        assert isinstance(values["prerequisites"], list)
+        assert isinstance(values["retired_slugs"], list)
         if values["submission_kind"] == "netlist":
             validate_netlist(
                 values["starter_netlist"], values["expected_subckt"], values["expected_pins"]

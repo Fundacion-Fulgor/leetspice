@@ -84,7 +84,9 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
 @router.get("/", response_class=HTMLResponse)
 def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
     challenges = db.scalars(
-        select(Challenge).where(Challenge.is_active.is_(True)).order_by(Challenge.id)
+        select(Challenge)
+        .where(Challenge.is_active.is_(True))
+        .order_by(Challenge.curriculum_order, Challenge.id)
     ).all()
     # Group challenges by track
     tracks: dict[str, list[Challenge]] = {}
@@ -105,7 +107,9 @@ def register_form(request: Request, db: Annotated[Session, Depends(get_session)]
 @router.get("/leaderboard", response_class=HTMLResponse)
 def global_board(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
     challenges = db.scalars(
-        select(Challenge).where(Challenge.is_active.is_(True)).order_by(Challenge.id)
+        select(Challenge)
+        .where(Challenge.is_active.is_(True), Challenge.is_ranked.is_(True))
+        .order_by(Challenge.curriculum_order, Challenge.id)
     ).all()
     return templates.TemplateResponse(
         request,
@@ -201,6 +205,20 @@ def challenge_detail(
         select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
     )
     if challenge is None:
+        replacement = next(
+            (
+                item
+                for item in db.scalars(
+                    select(Challenge).where(Challenge.is_active.is_(True))
+                ).all()
+                if slug in item.retired_slugs
+            ),
+            None,
+        )
+        if replacement is not None:
+            return RedirectResponse(
+                f"/challenges/{replacement.slug}", status_code=status.HTTP_301_MOVED_PERMANENTLY
+            )
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
         request,

@@ -7,6 +7,7 @@ import pytest
 
 from leetspice.judge.characterization import CharacterizationJudge
 from leetspice.judge.definition import load_definition
+from leetspice.judge.result import Measurement
 
 NETLIST = ".subckt dut in out vdd vss\nR1 in out 1k\n.ends dut\n"
 
@@ -139,3 +140,123 @@ def test_extracted_characterization_uses_private_definition(
     )
     assert result.accepted
     assert "post-layout" in result.message
+
+
+V2_DEFINITION = """version: 2
+conditions:
+  corner: [tt, ss]
+  temperature: [27, 125]
+tests:
+  - name: dc
+    template: judge/tests/dc.cir
+    sweep: {corner: all, temperature: all}
+    measurements:
+      - {name: gain, unit: V/V, minimum: 5}
+      - {name: current, unit: A, maximum: 0.001}
+      - {name: output, unit: V, minimum: 0, maximum: 1.2}
+score:
+  objectives:
+    - measurement: gain
+      direction: maximize
+      aggregation: minimum
+      normalization: 10
+      weight: 2
+    - measurement: current
+      direction: minimize
+      aggregation: maximum
+      normalization: 0.0005
+    - measurement: output
+      direction: target
+      aggregation: nominal
+      normalization: 0.1
+      target: 0.6
+"""
+
+
+def test_version_two_definition_parses_multi_objective_score(tmp_path: Path) -> None:
+    root = package(tmp_path, V2_DEFINITION)
+    definition = load_definition(root, "judge/definition.yaml")
+
+    assert definition.version == 2
+    assert [objective.measurement for objective in definition.score.objectives] == [
+        "gain",
+        "current",
+        "output",
+    ]
+    assert definition.score.objectives[0].weight == 2
+    assert definition.score.objectives[-1].target == 0.6
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "message"),
+    [
+        ("normalization: 10", None, "non-empty list"),
+        ("normalization: 10", "normalization: 0", "positive"),
+        ("weight: 2", "weight: 0", "positive"),
+        ("direction: maximize", "direction: sideways", "direction"),
+        ("aggregation: minimum", "aggregation: median", "aggregation"),
+        ("direction: maximize", "direction: target", "require target"),
+    ],
+)
+def test_version_two_definition_rejects_invalid_objectives(
+    tmp_path: Path, original: str, replacement: str | None, message: str
+) -> None:
+    if replacement is None:
+        definition = V2_DEFINITION.replace(
+            "objectives:\n    -", "objectives: []\nunused:\n    -", 1
+        )
+    else:
+        definition = V2_DEFINITION.replace(original, replacement, 1)
+    root = package(tmp_path, definition)
+    assert message is not None
+    with pytest.raises(ValueError, match=message):
+        load_definition(root, "judge/definition.yaml")
+
+
+def test_version_two_scoring_is_normalized_weighted_geomean(tmp_path: Path) -> None:
+    definition = load_definition(package(tmp_path, V2_DEFINITION), "judge/definition.yaml")
+    measurements = [
+        Measurement("gain_tt_27C", 20, conditions={"corner": "tt", "temperature": 27}),
+        Measurement("gain_ss_125C", 10, conditions={"corner": "ss", "temperature": 125}),
+        Measurement("current_tt_27C", 0.00025, conditions={"corner": "tt", "temperature": 27}),
+        Measurement(
+            "current_ss_125C", 0.0005, conditions={"corner": "ss", "temperature": 125}
+        ),
+        Measurement("output_tt_27C", 0.6, conditions={"corner": "tt", "temperature": 27}),
+        Measurement(
+            "output_ss_125C", 0.8, conditions={"corner": "ss", "temperature": 125}
+        ),
+    ]
+
+    # All three normalized objective factors are one.
+    assert CharacterizationJudge._score(definition, measurements) == 1.0
+
+
+def test_version_two_supports_mean_geomean_and_nominal_aggregation(tmp_path: Path) -> None:
+    definition_text = V2_DEFINITION.replace("aggregation: minimum", "aggregation: mean").replace(
+        "aggregation: maximum", "aggregation: geomean"
+    )
+    definition = load_definition(package(tmp_path, definition_text), "judge/definition.yaml")
+    measurements = [
+        Measurement("gain_tt_27C", 8, conditions={"corner": "tt", "temperature": 27}),
+        Measurement("gain_ss_125C", 12, conditions={"corner": "ss", "temperature": 125}),
+        Measurement("current_tt_27C", 0.00025, conditions={"corner": "tt", "temperature": 27}),
+        Measurement("current_ss_125C", 0.001, conditions={"corner": "ss", "temperature": 125}),
+        Measurement("output_tt_27C", 0.6, conditions={"corner": "tt", "temperature": 27}),
+        Measurement("output_ss_125C", 0.9, conditions={"corner": "ss", "temperature": 125}),
+    ]
+
+    # gain mean=10, current geomean=0.0005, nominal output=target.
+    assert CharacterizationJudge._score(definition, measurements) == 1.0
+
+
+def test_version_two_nominal_aggregation_requires_unique_tt_27c(tmp_path: Path) -> None:
+    definition = load_definition(package(tmp_path, V2_DEFINITION), "judge/definition.yaml")
+    measurements = [
+        Measurement("gain", 10),
+        Measurement("current", 0.0005),
+        Measurement("output", 0.6),
+        Measurement("output_other", 0.7),
+    ]
+    with pytest.raises(ValueError, match="exactly one"):
+        CharacterizationJudge._score(definition, measurements)

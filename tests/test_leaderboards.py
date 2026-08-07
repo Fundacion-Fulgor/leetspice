@@ -42,7 +42,17 @@ def test_global_leaderboard_weights_best_current_accepted_scores(client) -> None
             difficulty="capstone",
             is_active=False,
         )
-        session.add_all([*users, lower, higher, inactive])
+        guided = Challenge(
+            slug="guided",
+            title="Guided",
+            summary="Unranked lab",
+            description="Test",
+            expected_subckt="guided",
+            expected_pins=["in"],
+            difficulty="capstone",
+            is_ranked=False,
+        )
+        session.add_all([*users, lower, higher, inactive, guided])
         session.flush()
         session.add_all(
             [
@@ -91,6 +101,9 @@ def test_global_leaderboard_weights_best_current_accepted_scores(client) -> None
                 Submission(user_id=users[0].id, challenge_id=higher.id, status="failed", score=100),
                 Submission(
                     user_id=users[0].id, challenge_id=inactive.id, status="accepted", score=100
+                ),
+                Submission(
+                    user_id=users[0].id, challenge_id=guided.id, status="accepted", score=100
                 ),
             ]
         )

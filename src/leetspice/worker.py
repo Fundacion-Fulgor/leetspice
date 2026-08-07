@@ -168,6 +168,7 @@ def _store_related_run(job: Any, result: JudgeResult, backend_name: str) -> None
                 value=measurement.value,
                 unit=measurement.unit,
                 passed=measurement.passed,
+                details={"conditions": measurement.conditions} if measurement.conditions else None,
             )
             for measurement in result.measurements
         )

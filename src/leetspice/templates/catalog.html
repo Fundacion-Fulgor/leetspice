@@ -20,7 +20,7 @@
       <h3><a href="/challenges/{{ challenge.slug }}">{{ challenge.title }}</a></h3>
       <p>{{ challenge.summary }}</p>
       <div class="card-meta">
-        <span>OPTIMIZE</span><strong>{{ challenge.score_unit }}</strong>
+        <span>{% if challenge.is_ranked %}OPTIMIZE{% else %}GUIDED LAB{% endif %}</span><strong>{% if challenge.is_ranked %}{{ challenge.score_unit }}{% else %}UNRANKED{% endif %}</strong>
         <span class="difficulty-badge difficulty-{{ challenge.difficulty }}">{{ challenge.difficulty }}</span>
       </div>
       <a class="arrow-link" href="/challenges/{{ challenge.slug }}">Enter challenge <span>→</span></a>

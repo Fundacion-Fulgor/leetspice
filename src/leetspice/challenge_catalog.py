@@ -51,6 +51,24 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         or verification_version < 1
     ):
         raise ValueError(f"{source}: verification_version must be a positive integer")
+    curriculum_order = manifest.get("curriculum_order", 0)
+    if (
+        not isinstance(curriculum_order, int)
+        or isinstance(curriculum_order, bool)
+        or curriculum_order < 0
+    ):
+        raise ValueError(f"{source}: curriculum_order must be a non-negative integer")
+    prerequisites = manifest.get("prerequisites", [])
+    retired_slugs = manifest.get("retired_slugs", [])
+    for name, values in (("prerequisites", prerequisites), ("retired_slugs", retired_slugs)):
+        if not isinstance(values, list) or not all(
+            isinstance(value, str) and SLUG.fullmatch(value) for value in values
+        ):
+            raise ValueError(f"{source}: {name} must contain valid slugs")
+        if len(values) != len(set(values)):
+            raise ValueError(f"{source}: {name} must not contain duplicates")
+    if slug in prerequisites or slug in retired_slugs:
+        raise ValueError(f"{source}: a challenge cannot reference its own slug")
     interface = manifest.get("interface")
     if not isinstance(interface, dict):
         raise ValueError(f"{source}: interface must be an object")
@@ -123,6 +141,10 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         "track": track,
         "difficulty": difficulty,
         "verification_version": verification_version,
+        "is_ranked": bool(manifest.get("is_ranked", True)),
+        "curriculum_order": curriculum_order,
+        "prerequisites": prerequisites,
+        "retired_slugs": retired_slugs,
         "assets": assets,
         "score_unit": str(manifest.get("score_unit", "points")),
         "lower_is_better": bool(manifest.get("lower_is_better", False)),
@@ -140,6 +162,14 @@ def seed_challenges(session: Session, challenges_path: str | Path) -> None:
     slugs = [slug for slug, _ in packages]
     if len(slugs) != len(set(slugs)):
         raise ValueError("challenge manifests contain duplicate slugs")
+    retired = [retired for _, values in packages for retired in values["retired_slugs"]]
+    if len(retired) != len(set(retired)) or set(retired) & set(slugs):
+        raise ValueError("active and retired challenge slugs must be globally unique")
+    known_slugs = set(slugs) | set(retired)
+    for slug, values in packages:
+        missing = set(values["prerequisites"]) - known_slugs
+        if missing:
+            raise ValueError(f"challenge {slug} has unknown prerequisites: {sorted(missing)}")
     for slug, values in packages:
         challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
         if challenge is None:

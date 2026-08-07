@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from string import Template
 
-from .definition import CharacterizationDefinition, TestDefinition, load_definition
+from .definition import CharacterizationDefinition, ScoreDefinition, TestDefinition, load_definition
 from .result import JudgeResult, Measurement
 from .validator import validate_netlist
 
@@ -157,6 +157,7 @@ class CharacterizationJudge:
                                 value,
                                 spec.unit,
                                 passed,
+                                dict(conditions),
                             )
                         )
         return collected
@@ -210,6 +211,9 @@ class CharacterizationJudge:
     @staticmethod
     def _score(definition: CharacterizationDefinition, measurements: list[Measurement]) -> float:
         score = definition.score
+        if definition.version == 2:
+            return CharacterizationJudge._score_objectives(score, measurements)
+        assert score.measurement is not None
         primary = [
             item.value
             for item in measurements
@@ -230,6 +234,64 @@ class CharacterizationJudge:
             if not denominator:
                 raise ValueError("score denominator is missing")
             value = score.scale * min(primary) / max(max(denominator), 1e-30)
+        if not math.isfinite(value):
+            raise ValueError("score is non-finite")
+        return round(value, 6)
+
+    @staticmethod
+    def _score_objectives(score: ScoreDefinition, measurements: list[Measurement]) -> float:
+        weighted_logs = []
+        total_weight = 0.0
+        for objective in score.objectives:
+            matching = [
+                item
+                for item in measurements
+                if item.name == objective.measurement
+                or item.name.startswith(f"{objective.measurement}_")
+            ]
+            if not matching:
+                raise ValueError(f"score measurement is missing: {objective.measurement}")
+            values = [item.value for item in matching]
+            if objective.aggregation == "minimum":
+                aggregate = min(values)
+            elif objective.aggregation == "maximum":
+                aggregate = max(values)
+            elif objective.aggregation == "mean":
+                aggregate = sum(values) / len(values)
+            elif objective.aggregation == "geomean":
+                if any(value <= 0 for value in values):
+                    raise ValueError("geomean objective values must be positive")
+                aggregate = math.exp(sum(math.log(value) for value in values) / len(values))
+            else:
+                nominal = [
+                    item
+                    for item in matching
+                    if item.conditions.get("corner", "tt") == "tt"
+                    and float(item.conditions.get("temperature", 27)) == 27
+                ]
+                if len(nominal) != 1:
+                    raise ValueError(
+                        "nominal objective "
+                        f"{objective.measurement} requires exactly one TT/27C value"
+                    )
+                aggregate = nominal[0].value
+
+            if objective.direction == "maximize":
+                factor = aggregate / objective.normalization
+            elif objective.direction == "minimize":
+                if aggregate <= 0:
+                    raise ValueError("minimize objective values must be positive")
+                factor = objective.normalization / aggregate
+            else:
+                assert objective.target is not None
+                factor = objective.normalization / (
+                    objective.normalization + abs(aggregate - objective.target)
+                )
+            if not math.isfinite(factor) or factor <= 0:
+                raise ValueError("objective produced a non-positive score factor")
+            weighted_logs.append(objective.weight * math.log(factor))
+            total_weight += objective.weight
+        value = math.exp(sum(weighted_logs) / total_weight)
         if not math.isfinite(value):
             raise ValueError("score is non-finite")
         return round(value, 6)

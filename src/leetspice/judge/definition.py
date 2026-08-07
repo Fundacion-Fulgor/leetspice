@@ -10,6 +10,8 @@ from typing import Any
 import yaml
 
 SCORE_STRATEGIES = {"inverse_worst", "maximize_minimum", "efficiency"}
+OBJECTIVE_DIRECTIONS = {"maximize", "minimize", "target"}
+OBJECTIVE_AGGREGATIONS = {"minimum", "maximum", "mean", "geomean", "nominal"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,15 +33,27 @@ class TestDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class ScoreDefinition:
-    strategy: str
+class ScoreObjective:
     measurement: str
+    direction: str
+    aggregation: str
+    normalization: float
+    weight: float
+    target: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreDefinition:
+    strategy: str | None = None
+    measurement: str | None = None
     denominator: str | None = None
     scale: float = 1.0
+    objectives: tuple[ScoreObjective, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class CharacterizationDefinition:
+    version: int
     tests: tuple[TestDefinition, ...]
     score: ScoreDefinition
 
@@ -78,8 +92,9 @@ def load_definition(root: Path, relative: str) -> CharacterizationDefinition:
         data = yaml.safe_load(source.read_text(encoding="utf-8"))
     except yaml.YAMLError as error:
         raise ValueError(f"invalid characterization definition: {error}") from error
-    if not isinstance(data, dict) or data.get("version") != 1:
-        raise ValueError("characterization definition version must be 1")
+    if not isinstance(data, dict) or data.get("version") not in {1, 2}:
+        raise ValueError("characterization definition version must be 1 or 2")
+    version = data["version"]
 
     conditions = data.get("conditions", {})
     if not isinstance(conditions, dict):
@@ -149,15 +164,56 @@ def load_definition(root: Path, relative: str) -> CharacterizationDefinition:
         )
 
     raw_score = data.get("score")
-    if not isinstance(raw_score, dict) or raw_score.get("strategy") not in SCORE_STRATEGIES:
-        raise ValueError(f"score strategy must be one of {sorted(SCORE_STRATEGIES)}")
-    measurement = _identifier(raw_score.get("measurement"), "score measurement")
-    denominator = raw_score.get("denominator")
-    if denominator is not None:
-        denominator = _identifier(denominator, "score denominator")
-    if measurement not in all_measurements or (denominator and denominator not in all_measurements):
-        raise ValueError("score references an undeclared measurement")
-    scale = _number(raw_score.get("scale", 1), "score scale", positive=True)
-    return CharacterizationDefinition(
-        tuple(tests), ScoreDefinition(raw_score["strategy"], measurement, denominator, scale)
-    )
+    if not isinstance(raw_score, dict):
+        raise ValueError("score must be an object")
+    if version == 1:
+        if raw_score.get("strategy") not in SCORE_STRATEGIES:
+            raise ValueError(f"score strategy must be one of {sorted(SCORE_STRATEGIES)}")
+        measurement = _identifier(raw_score.get("measurement"), "score measurement")
+        denominator = raw_score.get("denominator")
+        if denominator is not None:
+            denominator = _identifier(denominator, "score denominator")
+        if measurement not in all_measurements or (
+            denominator and denominator not in all_measurements
+        ):
+            raise ValueError("score references an undeclared measurement")
+        scale = _number(raw_score.get("scale", 1), "score scale", positive=True)
+        score = ScoreDefinition(raw_score["strategy"], measurement, denominator, scale)
+    else:
+        raw_objectives = raw_score.get("objectives")
+        if not isinstance(raw_objectives, list) or not raw_objectives:
+            raise ValueError("version 2 score objectives must be a non-empty list")
+        objectives = []
+        for raw_objective in raw_objectives:
+            if not isinstance(raw_objective, dict):
+                raise ValueError("each score objective must be an object")
+            measurement = _identifier(raw_objective.get("measurement"), "objective measurement")
+            if measurement not in all_measurements:
+                raise ValueError(f"score references undeclared measurement {measurement}")
+            direction = raw_objective.get("direction")
+            if direction not in OBJECTIVE_DIRECTIONS:
+                raise ValueError(
+                    f"objective direction must be one of {sorted(OBJECTIVE_DIRECTIONS)}"
+                )
+            aggregation = raw_objective.get("aggregation")
+            if aggregation not in OBJECTIVE_AGGREGATIONS:
+                raise ValueError(
+                    f"objective aggregation must be one of {sorted(OBJECTIVE_AGGREGATIONS)}"
+                )
+            normalization = _number(
+                raw_objective.get("normalization"),
+                f"objective {measurement} normalization",
+                positive=True,
+            )
+            weight = _number(
+                raw_objective.get("weight", 1), f"objective {measurement} weight", positive=True
+            )
+            target = raw_objective.get("target")
+            target = None if target is None else _number(target, f"objective {measurement} target")
+            if (direction == "target") != (target is not None):
+                raise ValueError("target objectives require target; other directions forbid it")
+            objectives.append(
+                ScoreObjective(measurement, direction, aggregation, normalization, weight, target)
+            )
+        score = ScoreDefinition(objectives=tuple(objectives))
+    return CharacterizationDefinition(version, tuple(tests), score)

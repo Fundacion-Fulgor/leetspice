@@ -39,6 +39,29 @@ def test_registration_login_logout_and_csrf(client, csrf, register):
         assert user.password_hash.startswith("$argon2")
 
 
+def test_retired_challenge_slug_redirects_to_replacement(client):
+    with db.SessionLocal() as session:
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "mos-gmid"))
+        challenge.retired_slugs = ["old-mos-gmid"]
+        session.commit()
+
+    response = client.get("/challenges/old-mos-gmid", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/challenges/mos-gmid"
+
+
+def test_guided_challenge_has_no_leaderboard_panel(client):
+    with db.SessionLocal() as session:
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "mos-gmid"))
+        challenge.is_ranked = False
+        session.commit()
+
+    response = client.get("/challenges/mos-gmid")
+    assert response.status_code == 200
+    assert "GUIDED LAB" in response.text
+    assert "Fundación Fulgor scholarships" not in response.text
+
+
 def test_submission_preserves_netlist_and_is_private(client, csrf, register):
     register()
     page = client.get("/challenges/demo-cmos-inverter")

@@ -36,7 +36,9 @@ class GlobalLeader:
 
 def global_leaderboard(session: Session) -> list[GlobalLeader]:
     challenges = session.scalars(
-        select(Challenge).where(Challenge.is_active.is_(True)).order_by(Challenge.id)
+        select(Challenge)
+        .where(Challenge.is_active.is_(True), Challenge.is_ranked.is_(True))
+        .order_by(Challenge.curriculum_order, Challenge.id)
     ).all()
     if not challenges:
         return []
@@ -46,6 +48,7 @@ def global_leaderboard(session: Session) -> list[GlobalLeader]:
         .join(Submission.challenge)
         .where(
             Challenge.is_active.is_(True),
+            Challenge.is_ranked.is_(True),
             Submission.status == "accepted",
             Submission.score.is_not(None),
         )
