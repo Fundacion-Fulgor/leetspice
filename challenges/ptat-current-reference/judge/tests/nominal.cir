@@ -1,0 +1,16 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerHBT.lib hbt_typ
+.include submission.spice
+.temp 27
+VDD vdd 0 1.2
+VOUT out 0 0.6
+XDUT vdd 0 out ptat_current_reference
+.control
+op
+let nominal_current=abs(i(VOUT))
+let nominal_supply_current=abs(i(VDD))
+echo nominal_current $$&nominal_current > results.data
+echo nominal_supply_current $$&nominal_supply_current >> results.data
+quit
+.endc
+.end

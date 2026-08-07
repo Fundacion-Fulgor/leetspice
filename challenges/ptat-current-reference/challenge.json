@@ -2,10 +2,13 @@
   "schema_version": 2,
   "slug": "ptat-current-reference",
   "title": "PTAT Current Reference",
-  "summary": "Design and optimize an IHP SG13G2 ptat current reference across server-owned checks.",
+  "summary": "Generate current that rises with absolute temperature using SG13G2 HBTs.",
   "track": "References",
   "difficulty": "advanced",
-  "verification_version": 2,
+  "verification_version": 3,
+  "curriculum_order": 120,
+  "prerequisites": ["cascode-current-mirror"],
+  "is_ranked": true,
   "starter_file": "starter.cir",
   "specification_file": "specification.md",
   "interface": {
@@ -25,5 +28,5 @@
   },
   "score_unit": "points",
   "lower_is_better": false,
-  "is_active": false
+  "is_active": true
 }

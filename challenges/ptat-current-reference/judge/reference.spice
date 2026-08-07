@@ -1,5 +1,9 @@
 .subckt ptat_current_reference vdd vss out
-XMN out out vss vss sg13_lv_nmos W=4u L=0.5u ng=1 m=1
-XMP out out vdd vdd sg13_lv_pmos W=8u L=0.5u ng=1 m=1
-RPTAT out vss 30k
+XPL left right vdd vdd sg13_lv_pmos W=20u L=1u ng=4 m=1
+XPR right right vdd vdd sg13_lv_pmos W=20u L=1u ng=4 m=1
+XQL left left vss vss npn13G2 Nx=1
+XQR right right emit8 vss npn13G2 Nx=8
+RPTAT emit8 vss 3k
+XPOUT out right vdd vdd sg13_lv_pmos W=20u L=1u ng=4 m=1
+RSTART vdd right 10meg
 .ends ptat_current_reference
