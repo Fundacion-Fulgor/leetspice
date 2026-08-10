@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · LeetSpice{% endblock %}
+{% block content %}
+<section class="challenge-title"><div><p class="eyebrow">PERSONAL OVERVIEW</p><h1>{{ current_user.display_name }}</h1></div><div class="metric"><span>STREAK</span><strong>{{ streak }} DAY{{ "S" if streak != 1 else "" }}</strong></div></section>
+<section class="panel dashboard-metrics">
+  <div class="panel-head"><h2>Performance summary</h2><span>LIVE</span></div>
+  <div class="metrics-grid">
+    <div class="metric-card"><span>GLOBAL RANK</span><strong>{% if ranking %}#{{ "%02d"|format(ranking.rank) }} · {{ "%.6g"|format(ranking.total_points) }} pts{% else %}UNRANKED{% endif %}</strong></div>
+    <div class="metric-card"><span>CHALLENGES</span><strong>{{ completed_challenges }} / {{ total_challenges }}</strong></div>
+    <div class="metric-card"><span>SUCCESS RATE</span><strong>{{ "%.1f"|format(success_rate) }}%</strong></div>
+    <div class="metric-card"><span>STREAK</span><strong>{{ streak }} day{{ "s" if streak != 1 else "" }}</strong></div>
+  </div>
+</section>
+<section class="panel submission-history">
+  <div class="panel-head"><h2>Recent submissions</h2><span>LAST 5</span></div>
+  <div class="history-table" role="table" aria-label="Recent submissions">
+    {% for submission in recent %}<a class="history-row" role="row" href="/submissions/{{ submission.id }}"><span class="history-run">RUN-{{ "%05d"|format(submission.id) }}</span><strong>{{ submission.challenge.title }}</strong><span class="history-status {{ submission.status }}">{{ submission.status|upper }}</span><span>{% if submission.score is not none %}{{ "%.6g"|format(submission.score) }} {{ submission.challenge.score_unit }}{% else %}—{% endif %}</span><time>{{ submission.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</time></a>{% else %}<p class="empty">No submissions yet. <a href="/">Pick a challenge</a> to get started.</p>{% endfor %}
+  </div>
+  {% if recent %}<nav class="pagination"><a href="/submissions">View all submissions →</a></nav>{% endif %}
+</section>
+{% endblock %}
