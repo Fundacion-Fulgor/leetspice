@@ -13,6 +13,7 @@ from .auth import new_session, read_session, set_session_cookie
 from .challenge_catalog import seed_challenges
 from .config import Settings, get_settings
 from .schemas import HealthRead
+from .admin import setup_admin
 from .web import router
 
 
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name="static",
     )
     application.include_router(router)
+    setup_admin(application, db.engine, settings)
     return application
 
 
