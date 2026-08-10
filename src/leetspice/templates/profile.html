@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Profile · LeetSpice{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <div><p class="eyebrow">LAB IDENTITY</p><h1>Your<br><em>profile.</em></h1><p>{{ current_user.display_name }} · {{ current_user.email }}</p></div>
+  <div class="panel form-panel profile-actions">
+    <h2>Account settings</h2>
+    <button class="primary" onclick="document.getElementById('name-form').hidden=false; this.hidden=true">Change display name</button>
+    <button class="primary" onclick="document.getElementById('password-form').hidden=false; this.hidden=true">Change password</button>
+  </div>
+  <form method="post" action="/profile" class="panel form-panel" id="name-form"{% if not show_name %} hidden{% endif %}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2>Display name</h2>
+    {% if name_error %}<div class="alert">{{ name_error }}</div>{% endif %}
+    {% if name_success %}<div class="alert success">Display name updated.</div>{% endif %}
+    <label>Display name<input name="display_name" maxlength="80" required value="{{ current_user.display_name }}" autocomplete="name"></label>
+    <button class="primary">Update name</button>
+  </form>
+  <form method="post" action="/profile/password" class="panel form-panel" id="password-form"{% if not show_password %} hidden{% endif %}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2>Change password</h2>
+    {% if password_error %}<div class="alert">{{ password_error }}</div>{% endif %}
+    {% if password_success %}<div class="alert success">Password changed successfully.</div>{% endif %}
+    <label>Current password<input type="password" name="current_password" required autocomplete="current-password"></label>
+    <label>New password<input type="password" name="new_password" minlength="10" required autocomplete="new-password"><small>10 characters minimum</small></label>
+    <label>Confirm new password<input type="password" name="confirm_password" minlength="10" required autocomplete="new-password"></label>
+    <button class="primary">Change password</button>
+  </form>
+</section>
+{% endblock %}

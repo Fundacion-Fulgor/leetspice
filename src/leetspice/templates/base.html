@@ -23,6 +23,7 @@
       <a href="/leaderboard">Leaderboard</a>
       {% if current_user %}
         <a href="/dashboard">Dashboard</a>
+        <a href="/profile">Profile</a>
         <a href="/submissions">My submissions</a>
         <span class="identity">{{ current_user.display_name }}</span>
         <form method="post" action="/logout" class="inline-form">

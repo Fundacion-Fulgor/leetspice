@@ -200,6 +200,84 @@ def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) ->
     )
 
 
+@router.get("/profile", response_class=HTMLResponse)
+def profile_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(request, "profile.html", _context(request, db))
+
+
+@router.post("/profile", response_class=HTMLResponse)
+def profile_update(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    display_name: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    name = display_name.strip()
+    if not name or len(name) > 80:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, name_error="Display name must be between 1 and 80 characters.", show_name=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    if name == user.display_name:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, name_error="New name is the same as the current one.", show_name=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    user.display_name = name
+    db.commit()
+    return templates.TemplateResponse(
+        request, "profile.html", _context(request, db, name_success=True, show_name=True)
+    )
+
+
+@router.post("/profile/password", response_class=HTMLResponse)
+def profile_password(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    current_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    confirm_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    error = None
+    if not verify_password(user.password_hash, current_password):
+        error = "Current password is incorrect."
+    elif len(new_password) < 10:
+        error = "New password must be at least 10 characters."
+    elif new_password != confirm_password:
+        error = "Passwords do not match."
+    elif verify_password(user.password_hash, new_password):
+        error = "New password must be different from the current one."
+    if error:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, password_error=error, show_password=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    user.password_hash = hash_password(new_password)
+    db.commit()
+    request.state.session = new_session(user.id, request.app.state.settings)
+    return templates.TemplateResponse(
+        request, "profile.html", _context(request, db, password_success=True, show_password=True)
+    )
+
+
 @router.post("/register", response_class=HTMLResponse)
 def register(
     request: Request,
