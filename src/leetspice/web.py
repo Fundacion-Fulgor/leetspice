@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Sequence
+from datetime import UTC, date, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
@@ -125,6 +126,76 @@ def global_board(request: Request, db: Annotated[Session, Depends(get_session)])
                 * 100
                 for challenge in challenges
             ),
+        ),
+    )
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    leaders = global_leaderboard(db)
+    my_ranking = next((leader for leader in leaders if leader.user.id == user.id), None)
+
+    total_challenges = db.scalar(
+        select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
+    ) or 0
+    completed_challenges = db.scalar(
+        select(func.count(func.distinct(Submission.challenge_id))).where(
+            Submission.user_id == user.id, Submission.status == "accepted"
+        )
+    ) or 0
+
+    resolved_count = db.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.user_id == user.id,
+            Submission.status.in_(("accepted", "failed", "rejected")),
+        )
+    ) or 0
+    accepted_count = db.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.user_id == user.id, Submission.status == "accepted"
+        )
+    ) or 0
+    success_rate = (accepted_count / resolved_count * 100) if resolved_count else 0.0
+
+    recent = db.scalars(
+        select(Submission)
+        .options(selectinload(Submission.challenge))
+        .where(Submission.user_id == user.id)
+        .order_by(Submission.created_at.desc(), Submission.id.desc())
+        .limit(5)
+    ).all()
+
+    submission_dates = db.scalars(
+        select(func.distinct(func.date(Submission.created_at))).where(
+            Submission.user_id == user.id
+        )
+    ).all()
+    today = date.today()
+    date_set = {d if isinstance(d, date) else date.fromisoformat(str(d)) for d in submission_dates}
+    streak = 0
+    check = today
+    if check not in date_set:
+        check -= timedelta(days=1)
+    while check in date_set:
+        streak += 1
+        check -= timedelta(days=1)
+
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        _context(
+            request,
+            db,
+            ranking=my_ranking,
+            total_challenges=total_challenges,
+            completed_challenges=completed_challenges,
+            success_rate=success_rate,
+            recent=recent,
+            streak=streak,
         ),
     )
 
