@@ -5,7 +5,7 @@
   "summary": "Size an IHP SG13G2 CMOS inverter across process and temperature corners.",
   "track": "MOS Foundations",
   "difficulty": "introductory",
-  "verification_version": 3,
+  "verification_version": 4,
   "curriculum_order": 40,
   "prerequisites": ["mos-efficiency-sizing"],
   "is_ranked": true,

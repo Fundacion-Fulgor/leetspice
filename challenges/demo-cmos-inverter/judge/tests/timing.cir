@@ -18,11 +18,13 @@ meas tran logic_high FIND v(out) AT=5n
 meas tran logic_low FIND v(out) AT=9n
 let tphl=tphl_s*1e12
 let tplh=tplh_s*1e12
+let worst_delay=max(tphl,tplh)
 let rise_time=rise_time_s*1e12
 let fall_time=fall_time_s*1e12
 let average_current=abs(average_current_a)*1e6
 echo tphl $$&tphl > results.data
 echo tplh $$&tplh >> results.data
+echo worst_delay $$&worst_delay >> results.data
 echo rise_time $$&rise_time >> results.data
 echo fall_time $$&fall_time >> results.data
 echo average_current $$&average_current >> results.data

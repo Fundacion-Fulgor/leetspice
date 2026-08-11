@@ -24,6 +24,10 @@ tests:
     unit: ps
     minimum: 0
     maximum: 500
+  - name: worst_delay
+    unit: ps
+    minimum: 0
+    maximum: 500
   - name: rise_time
     unit: ps
     minimum: 0
@@ -46,6 +50,5 @@ tests:
     maximum: 1.2
 score:
   objectives:
-  - {measurement: tphl, direction: minimize, aggregation: maximum, normalization: 100}
-  - {measurement: tplh, direction: minimize, aggregation: maximum, normalization: 100}
+  - {measurement: worst_delay, direction: minimize, aggregation: maximum, normalization: 100, weight: 2}
   - {measurement: average_current, direction: minimize, aggregation: maximum, normalization: 25}
