@@ -315,7 +315,7 @@ def test_global_leaderboard_is_public_and_linked(client):
 
 def test_stylesheet_url_is_versioned(client):
     response = client.get("/")
-    assert "/static/app.css?v=6" in response.text
+    assert "/static/app.css?v=7" in response.text
     assert "Fundación Fulgor" in response.text
     assert "A Fulgor Foundation project" in response.text
     assert "/static/fulgor-mark.png" in response.text
