@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Sequence
-from datetime import UTC, date, timedelta
+from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
@@ -20,6 +20,8 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markdown_it import MarkdownIt
+from markupsafe import Markup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -29,6 +31,7 @@ from .leaderboards import global_leaderboard
 from .models import Challenge, Submission, User
 
 router = APIRouter()
+markdown = MarkdownIt("commonmark", {"html": False, "linkify": False}).enable("table")
 SUBMISSIONS_PAGE_SIZE = 25
 templates = Jinja2Templates(
     directory=str(__import__("pathlib").Path(__file__).parent / "templates")
@@ -372,7 +375,13 @@ def challenge_detail(
     return templates.TemplateResponse(
         request,
         "challenge.html",
-        _context(request, db, challenge=challenge, leaders=_leaderboard(db, challenge)),
+        _context(
+            request,
+            db,
+            challenge=challenge,
+            description_html=Markup(markdown.render(challenge.description)),
+            leaders=_leaderboard(db, challenge),
+        ),
     )
 
 
