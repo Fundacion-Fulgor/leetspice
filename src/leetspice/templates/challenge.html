@@ -5,6 +5,17 @@
   <div><p class="eyebrow">CH-{{ "%02d"|format(challenge.id) }} / ACTIVE BENCH</p><h1>{{ challenge.title }}</h1></div>
   <div class="metric"><span>OBJECTIVE</span><strong>{% if challenge.is_ranked %}{% if challenge.lower_is_better %}MIN{% else %}MAX{% endif %} {{ challenge.score_unit }}{% else %}GUIDED LAB{% endif %}</strong></div>
 </section>
+{% if not prerequisites_met and current_user %}
+<div class="prereq-banner">
+  <strong>Prerequisites required</strong>
+  Complete the following challenges before submitting a design:
+  <ul>
+    {% for prereq in missing_prerequisites %}
+    <li><a href="/challenges/{{ prereq.slug }}">{{ prereq.title }}</a> <span class="difficulty-badge difficulty-{{ prereq.difficulty }}">{{ prereq.difficulty }}</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 <div class="workspace">
   <section>
     <div class="panel brief"><h2>Design brief</h2><p>{{ challenge.description }}</p><dl><dt>Track</dt><dd>{{ challenge.track }} · {{ challenge.difficulty }}</dd><dt>Verification</dt><dd>{% if challenge.judge_backend == 'klayout' %}Magic DRC · Netgen LVS · PEX · ngspice{% else %}Direct ngspice{% endif %}</dd><dt>{% if challenge.submission_kind == 'gds' %}Required top cell{% else %}Required subcircuit{% endif %}</dt><dd>{{ challenge.expected_subckt }}</dd><dt>{% if challenge.submission_kind == 'gds' %}Required pins{% else %}Pin order{% endif %}</dt><dd>{{ challenge.expected_pins|join(' · ') }}</dd></dl>{% if challenge.assets %}<div class="challenge-assets"><span>DESIGN FILES</span>{% for asset in challenge.assets %}<a href="/challenges/{{ challenge.slug }}/assets/{{ asset.id }}">{{ asset.label }} →</a>{% endfor %}</div>{% endif %}</div>
@@ -18,6 +29,7 @@
     <div class="panel-head"><h2>{% if challenge.submission_kind == 'gds' %}Layout input{% else %}Netlist input{% endif %}</h2><span>{% if challenge.submission_kind == 'gds' %}BINARY / GDSII{% else %}TEXT / SPICE{% endif %}</span></div>
     {% if error %}<div class="alert">{{ error }}</div>{% endif %}
     {% if current_user %}
+      {% if prerequisites_met %}
     <form method="post" action="/challenges/{{ challenge.slug }}/submit"{% if challenge.submission_kind == 'gds' %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% if challenge.submission_kind == 'gds' %}
@@ -27,6 +39,10 @@
       {% endif %}
       <div class="submit-row"><small>Input is submitted exactly as provided.</small><button class="primary">Queue verification</button></div>
     </form>
+      {% else %}
+    {% if challenge.submission_kind == 'netlist' %}<pre>{{ challenge.starter_netlist }}</pre>{% endif %}
+    <div class="submit-row"><small>Complete the prerequisites above to unlock submissions.</small><button class="primary" disabled>Queue verification</button></div>
+      {% endif %}
     {% else %}
       {% if challenge.submission_kind == 'netlist' %}<pre>{{ challenge.starter_netlist }}</pre>{% endif %}<p class="gate"><a href="/login">Log in</a> or <a href="/register">create an account</a> to submit a design.</p>
     {% endif %}

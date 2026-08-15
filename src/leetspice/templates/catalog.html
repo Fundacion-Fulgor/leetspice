@@ -15,15 +15,27 @@
   <h3 class="track-title">{{ track }}</h3>
   <div class="challenge-grid">
     {% for challenge in track_challenges %}
-    <article class="challenge-card">
-      <div class="card-index">CH-{{ "%02d"|format(challenge.id) }}</div>
-      <h3><a href="/challenges/{{ challenge.slug }}">{{ challenge.title }}</a></h3>
+    {% set status = progress.get(challenge.slug, 'not_started') if progress else 'not_started' %}
+    <article class="challenge-card{% if status == 'locked' %} locked{% endif %}">
+      <div class="card-lock"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>LOCKED</div>
+      <div class="card-index">CH-{{ "%02d"|format(challenge.id) }}
+        {% if current_user %}
+        {% if status == 'completed' %}
+        <span class="progress-badge completed"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SOLVED</span>
+        {% elif status == 'in_progress' %}
+        <span class="progress-badge in-progress"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>IN PROGRESS</span>
+        {% elif status == 'locked' %}
+        <span class="progress-badge locked"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>LOCKED</span>
+        {% endif %}
+        {% endif %}
+      </div>
+      <h3><a href="/challenges/{{ challenge.slug }}"{% if status == 'locked' %} tabindex="-1"{% endif %}>{{ challenge.title }}</a></h3>
       <p>{{ challenge.summary }}</p>
       <div class="card-meta">
         <span>{% if challenge.is_ranked %}OPTIMIZE{% else %}GUIDED LAB{% endif %}</span><strong>{% if challenge.is_ranked %}{{ challenge.score_unit }}{% else %}UNRANKED{% endif %}</strong>
         <span class="difficulty-badge difficulty-{{ challenge.difficulty }}">{{ challenge.difficulty }}</span>
       </div>
-      <a class="arrow-link" href="/challenges/{{ challenge.slug }}">Enter challenge <span>→</span></a>
+      <a class="arrow-link" href="/challenges/{{ challenge.slug }}"{% if status == 'locked' %} tabindex="-1"{% endif %}>{% if status == 'locked' %}Prerequisites required{% else %}Enter challenge{% endif %} <span>→</span></a>
     </article>
     {% endfor %}
   </div>

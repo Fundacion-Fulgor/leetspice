@@ -39,6 +39,65 @@ def _current_user(request: Request, db: Session) -> User | None:
     return db.get(User, user_id) if user_id else None
 
 
+def _completed_slugs(db: Session, user: User | None) -> set[str]:
+    """Return the set of challenge slugs for which *user* has an accepted submission."""
+    if user is None:
+        return set()
+    return set(
+        db.scalars(
+            select(Challenge.slug)
+            .join(Submission, Submission.challenge_id == Challenge.id)
+            .where(Submission.user_id == user.id, Submission.status == "accepted")
+            .distinct()
+        ).all()
+    )
+
+
+def _challenge_progress(
+    db: Session, user: User | None, challenges: Sequence[Challenge],
+) -> dict[str, str]:
+    """Map every challenge slug to a progress token for the logged-in user.
+
+    Possible values: ``'completed'``, ``'in_progress'``, ``'not_started'``,
+    ``'locked'`` (prerequisites not met – takes priority).
+    """
+    if user is None:
+        return {}
+    completed = _completed_slugs(db, user)
+    attempted = set(
+        db.scalars(
+            select(Challenge.slug)
+            .join(Submission, Submission.challenge_id == Challenge.id)
+            .where(Submission.user_id == user.id)
+            .distinct()
+        ).all()
+    )
+    progress: dict[str, str] = {}
+    for challenge in challenges:
+        prereqs = challenge.prerequisites or []
+        if prereqs and not all(slug in completed for slug in prereqs):
+            progress[challenge.slug] = "locked"
+        elif challenge.slug in completed:
+            progress[challenge.slug] = "completed"
+        elif challenge.slug in attempted:
+            progress[challenge.slug] = "in_progress"
+        else:
+            progress[challenge.slug] = "not_started"
+    return progress
+
+
+def _missing_prerequisites(
+    db: Session, challenge: Challenge, completed: set[str],
+) -> list[Challenge]:
+    """Return the *Challenge* objects the user still needs to complete."""
+    missing_slugs = [slug for slug in (challenge.prerequisites or []) if slug not in completed]
+    if not missing_slugs:
+        return []
+    return list(
+        db.scalars(select(Challenge).where(Challenge.slug.in_(missing_slugs))).all()
+    )
+
+
 def _context(request: Request, db: Session, **values: object) -> dict[str, object]:
     return {
         "request": request,
@@ -88,6 +147,8 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
         .where(Challenge.is_active.is_(True))
         .order_by(Challenge.curriculum_order, Challenge.id)
     ).all()
+    user = _current_user(request, db)
+    progress = _challenge_progress(db, user, challenges)
     # Group challenges by track
     tracks: dict[str, list[Challenge]] = {}
     for c in challenges:
@@ -95,7 +156,7 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
     return templates.TemplateResponse(
         request,
         "catalog.html",
-        _context(request, db, tracks=tracks, challenges_count=len(challenges)),
+        _context(request, db, tracks=tracks, challenges_count=len(challenges), progress=progress),
     )
 
 
@@ -220,10 +281,22 @@ def challenge_detail(
                 f"/challenges/{replacement.slug}", status_code=status.HTTP_301_MOVED_PERMANENTLY
             )
         raise HTTPException(status_code=404)
+    user = _current_user(request, db)
+    completed = _completed_slugs(db, user)
+    prereqs = challenge.prerequisites or []
+    prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
+    missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
     return templates.TemplateResponse(
         request,
         "challenge.html",
-        _context(request, db, challenge=challenge, leaders=_leaderboard(db, challenge)),
+        _context(
+            request,
+            db,
+            challenge=challenge,
+            leaders=_leaderboard(db, challenge),
+            prerequisites_met=prerequisites_met,
+            missing_prerequisites=missing,
+        ),
     )
 
 
@@ -281,6 +354,24 @@ async def submit(
     )
     if challenge is None:
         raise HTTPException(status_code=404)
+    completed = _completed_slugs(db, user)
+    prereqs = challenge.prerequisites or []
+    if prereqs and not all(slug in completed for slug in prereqs):
+        missing = _missing_prerequisites(db, challenge, completed)
+        return templates.TemplateResponse(
+            request,
+            "challenge.html",
+            _context(
+                request,
+                db,
+                challenge=challenge,
+                leaders=_leaderboard(db, challenge),
+                prerequisites_met=False,
+                missing_prerequisites=missing,
+                error="Complete all prerequisite challenges before submitting.",
+            ),
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     try:
         if challenge.submission_kind == "gds":
             maximum = int(challenge.submission_config.get("maximum_bytes", 8 * 1024 * 1024))
@@ -329,6 +420,8 @@ async def submit(
                 leaders=_leaderboard(db, challenge),
                 error=str(exc),
                 submitted_netlist=netlist,
+                prerequisites_met=True,
+                missing_prerequisites=[],
             ),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
