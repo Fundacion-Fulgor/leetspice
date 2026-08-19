@@ -19,6 +19,7 @@ dependencies = [
   "sqlalchemy>=2.0,<3",
   "sqladmin>=0.19,<1",
   "uvicorn[standard]>=0.32,<1",
+  "itsdangerous>=2.1.0",
 ]
 
 [project.optional-dependencies]
