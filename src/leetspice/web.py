@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Sequence
+from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
@@ -19,6 +20,8 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markdown_it import MarkdownIt
+from markupsafe import Markup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -28,6 +31,7 @@ from .leaderboards import global_leaderboard
 from .models import Challenge, Submission, User
 
 router = APIRouter()
+markdown = MarkdownIt("commonmark", {"html": False, "linkify": False}).enable("table")
 SUBMISSIONS_PAGE_SIZE = 25
 templates = Jinja2Templates(
     directory=str(__import__("pathlib").Path(__file__).parent / "templates")
@@ -190,6 +194,154 @@ def global_board(request: Request, db: Annotated[Session, Depends(get_session)])
     )
 
 
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    leaders = global_leaderboard(db)
+    my_ranking = next((leader for leader in leaders if leader.user.id == user.id), None)
+
+    total_challenges = db.scalar(
+        select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
+    ) or 0
+    completed_challenges = db.scalar(
+        select(func.count(func.distinct(Submission.challenge_id))).where(
+            Submission.user_id == user.id, Submission.status == "accepted"
+        )
+    ) or 0
+
+    resolved_count = db.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.user_id == user.id,
+            Submission.status.in_(("accepted", "failed", "rejected")),
+        )
+    ) or 0
+    accepted_count = db.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.user_id == user.id, Submission.status == "accepted"
+        )
+    ) or 0
+    success_rate = (accepted_count / resolved_count * 100) if resolved_count else 0.0
+
+    recent = db.scalars(
+        select(Submission)
+        .options(selectinload(Submission.challenge))
+        .where(Submission.user_id == user.id)
+        .order_by(Submission.created_at.desc(), Submission.id.desc())
+        .limit(5)
+    ).all()
+
+    submission_dates = db.scalars(
+        select(func.distinct(func.date(Submission.created_at))).where(
+            Submission.user_id == user.id
+        )
+    ).all()
+    today = date.today()
+    date_set = {d if isinstance(d, date) else date.fromisoformat(str(d)) for d in submission_dates}
+    streak = 0
+    check = today
+    if check not in date_set:
+        check -= timedelta(days=1)
+    while check in date_set:
+        streak += 1
+        check -= timedelta(days=1)
+
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        _context(
+            request,
+            db,
+            ranking=my_ranking,
+            total_challenges=total_challenges,
+            completed_challenges=completed_challenges,
+            success_rate=success_rate,
+            recent=recent,
+            streak=streak,
+        ),
+    )
+
+
+@router.get("/profile", response_class=HTMLResponse)
+def profile_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(request, "profile.html", _context(request, db))
+
+
+@router.post("/profile", response_class=HTMLResponse)
+def profile_update(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    display_name: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    name = display_name.strip()
+    if not name or len(name) > 80:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, name_error="Display name must be between 1 and 80 characters.", show_name=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    if name == user.display_name:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, name_error="New name is the same as the current one.", show_name=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    user.display_name = name
+    db.commit()
+    return templates.TemplateResponse(
+        request, "profile.html", _context(request, db, name_success=True, show_name=True)
+    )
+
+
+@router.post("/profile/password", response_class=HTMLResponse)
+def profile_password(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    current_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    confirm_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    error = None
+    if not verify_password(user.password_hash, current_password):
+        error = "Current password is incorrect."
+    elif len(new_password) < 10:
+        error = "New password must be at least 10 characters."
+    elif new_password != confirm_password:
+        error = "Passwords do not match."
+    elif verify_password(user.password_hash, new_password):
+        error = "New password must be different from the current one."
+    if error:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, password_error=error, show_password=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    user.password_hash = hash_password(new_password)
+    db.commit()
+    request.state.session = new_session(user.id, request.app.state.settings)
+    return templates.TemplateResponse(
+        request, "profile.html", _context(request, db, password_success=True, show_password=True)
+    )
+
+
 @router.post("/register", response_class=HTMLResponse)
 def register(
     request: Request,
@@ -293,9 +445,11 @@ def challenge_detail(
             request,
             db,
             challenge=challenge,
+            description_html=Markup(markdown.render(challenge.description)),
             leaders=_leaderboard(db, challenge),
             prerequisites_met=prerequisites_met,
             missing_prerequisites=missing,
+
         ),
     )
 

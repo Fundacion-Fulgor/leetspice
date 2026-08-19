@@ -25,10 +25,11 @@ a 1.2 V supply and 10 fF output load.
 - Settled logic low must be at most 0.12 V and logic high at least 1.08 V.
 - Every limit must pass at all nine process/temperature combinations.
 
-After all hard limits pass, the score is the equally weighted geometric mean of
-worst-case `tPHL`, `tPLH`, and average current, normalized to 100 ps, 100 ps,
-and 25 uA respectively and minimized. This rewards balanced edges rather than
-optimizing only one transition. This is schematic-level simulation, not post-layout
-signoff, mismatch, Monte Carlo, reliability, or manufacturability verification.
+After all hard limits pass, the score is the weighted geometric mean of worst-case
+`max(tPHL, tPLH)` and average current, normalized to 100 ps and 25 uA respectively
+and minimized. Worst-edge delay has twice the weight of current, so an improvement
+to one transition cannot hide a regression in the other. This is schematic-level
+simulation, not post-layout signoff, mismatch, Monte Carlo, reliability, or
+manufacturability verification.
 
 The production worker runs ngspice directly from the submitted subcircuit and private testbench; Xschem and CACE are not part of the judge path.
