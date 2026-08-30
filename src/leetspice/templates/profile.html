@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Profile · LeetSpice{% endblock %}
 {% block content %}
-<section class="auth-shell">
+<section class="auth-shell profile-shell">
   <div><p class="eyebrow">LAB IDENTITY</p><h1>Your<br><em>profile.</em></h1><p>{{ current_user.display_name }} · {{ current_user.email }}</p></div>
   <div class="panel form-panel profile-actions">
     <h2>Account settings</h2>
     <button class="primary" onclick="document.getElementById('name-form').hidden=false; this.hidden=true">Change display name</button>
     <button class="primary" onclick="document.getElementById('password-form').hidden=false; this.hidden=true">Change password</button>
+    {% if current_user.is_admin %}
+    <a href="/admin" class="primary admin-link">Admin panel &#x2192;</a>
+    {% endif %}
   </div>
   <form method="post" action="/profile" class="panel form-panel" id="name-form"{% if not show_name %} hidden{% endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
