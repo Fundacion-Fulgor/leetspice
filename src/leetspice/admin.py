@@ -12,7 +12,7 @@ from .auth import read_session
 from .config import Settings
 from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
-from .models import Challenge, JudgeRun, Measurement, Submission, User
+from .models import Challenge, Submission, User
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ class ChallengeAdmin(ModelView, model=Challenge):
     ]
     column_default_sort = [(Challenge.curriculum_order, False), (Challenge.id, False)]
     form_excluded_columns = [Challenge.submissions]
-    can_create = True
+    can_create = False
     can_edit = True
     can_delete = True
 
@@ -163,30 +163,250 @@ class SubmissionAdmin(ModelView, model=Submission):
     can_delete = True
 
 
-class JudgeRunAdmin(ModelView, model=JudgeRun):
-    name = "Judge Run"
-    name_plural = "Judge Runs"
-    icon = "fa-solid fa-gavel"
-    column_list = [
-        JudgeRun.id, JudgeRun.submission_id, JudgeRun.status,
-        JudgeRun.backend, JudgeRun.started_at, JudgeRun.finished_at,
-    ]
-    column_sortable_list = [JudgeRun.id, JudgeRun.status, JudgeRun.started_at]
-    can_create = False
-    can_delete = False
 
+# ---------------------------------------------------------------------------
+# Create Challenge view
+# ---------------------------------------------------------------------------
 
-class MeasurementAdmin(ModelView, model=Measurement):
-    name = "Measurement"
-    name_plural = "Measurements"
-    icon = "fa-solid fa-ruler"
-    column_list = [
-        Measurement.id, Measurement.judge_run_id, Measurement.name,
-        Measurement.value, Measurement.unit, Measurement.passed,
-    ]
-    column_sortable_list = [Measurement.id, Measurement.name, Measurement.value]
-    can_create = False
-    can_delete = False
+class CreateChallengeView(BaseView):
+    name = "New Challenge"
+    icon = "fa-solid fa-plus-circle"
+
+    @expose("/create-challenge", methods=["GET"])
+    async def get_create_challenge(self, request: Request) -> Response:
+        form_html = _render_create_challenge_form()
+        return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+
+    @expose("/create-challenge", methods=["POST"])
+    async def post_create_challenge(self, request: Request) -> Response:
+        form = await request.form()
+        slug = form.get("slug")
+        title = form.get("title")
+        summary = form.get("summary")
+        description = form.get("description")
+        track = form.get("track")
+        difficulty = form.get("difficulty")
+        curriculum_order = int(form.get("curriculum_order", 0))
+        category = form.get("category", "General")
+        expected_subckt = form.get("expected_subckt")
+        expected_pins = form.get("expected_pins", "")
+        starter_netlist = form.get("starter_netlist", "")
+        judge_backend = form.get("judge_backend", "characterization")
+        submission_kind = form.get("submission_kind", "netlist")
+        score_unit = form.get("score_unit", "points")
+        lower_is_better = form.get("lower_is_better") == "on"
+        is_active = form.get("is_active") == "on"
+        is_ranked = form.get("is_ranked") == "on"
+        verification_version = int(form.get("verification_version", 1))
+
+        pin_list = [p.strip() for p in expected_pins.split(",") if p.strip()]
+
+        with SessionLocal() as session:
+            existing = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if existing:
+                form_html = _render_create_challenge_form(error=f"Slug '{slug}' already exists.", data=form)
+                return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+
+            challenge = Challenge(
+                slug=slug,
+                title=title,
+                summary=summary,
+                description=description,
+                track=track,
+                difficulty=difficulty,
+                curriculum_order=curriculum_order,
+                category=category,
+                expected_subckt=expected_subckt,
+                expected_pins=pin_list,
+                starter_netlist=starter_netlist,
+                judge_backend=judge_backend,
+                submission_kind=submission_kind,
+                score_unit=score_unit,
+                lower_is_better=lower_is_better,
+                is_active=is_active,
+                is_ranked=is_ranked,
+                verification_version=verification_version,
+                submission_config={},
+                judge_config={},
+                assets=[],
+                prerequisites=[]
+            )
+            session.add(challenge)
+            session.commit()
+
+        return RedirectResponse(url="/admin/challenge/list", status_code=302)
+
+def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
+    data = data or {}
+    err_html = f'<div class="alert alert-danger">{escape(error)}</div>' if error else ""
+    
+    def val(key, default=""):
+        return escape(str(data.get(key, default)))
+    
+    def check(key, default=False):
+        if not data:
+            return "checked" if default else ""
+        return "checked" if data.get(key) else ""
+        
+    def sel(key, opt, default=False):
+        if not data:
+            return "selected" if default else ""
+        return "selected" if data.get(key) == opt else ""
+
+    return f'''
+{err_html}
+<form method="post" action="/admin/create-challenge">
+  <div class="row g-4">
+    <!-- Basic Info -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-align-left"></i> Basic Info</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">Slug</label>
+            <input type="text" name="slug" class="form-control" required placeholder="e.g. basic-current-mirror" value="{val('slug')}">
+            <div class="form-text">Unique URL identifier.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Title</label>
+            <input type="text" name="title" class="form-control" required value="{val('title')}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Summary</label>
+            <input type="text" name="summary" class="form-control" required value="{val('summary')}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="form-control" rows="4" required>{val('description')}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Classification -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-tags"></i> Classification</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">Track</label>
+            <select name="track" class="form-select">
+              <option value="MOS Foundations" {sel('track', 'MOS Foundations', True)}>MOS Foundations</option>
+              <option value="Biasing" {sel('track', 'Biasing')}>Biasing</option>
+              <option value="Amplifiers" {sel('track', 'Amplifiers')}>Amplifiers</option>
+              <option value="Physical Design" {sel('track', 'Physical Design')}>Physical Design</option>
+              <option value="Advanced" {sel('track', 'Advanced')}>Advanced</option>
+              <option value="General" {sel('track', 'General')}>General</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Difficulty</label>
+            <select name="difficulty" class="form-select">
+              <option value="introductory" {sel('difficulty', 'introductory', True)}>Introductory</option>
+              <option value="intermediate" {sel('difficulty', 'intermediate')}>Intermediate</option>
+              <option value="advanced" {sel('difficulty', 'advanced')}>Advanced</option>
+              <option value="capstone" {sel('difficulty', 'capstone')}>Capstone</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label">Curriculum Order</label>
+              <input type="number" name="curriculum_order" class="form-control" value="{val('curriculum_order', '0')}">
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label">Category</label>
+              <input type="text" name="category" class="form-control" value="{val('category', 'General')}">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Circuit Interface -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-microchip"></i> Circuit Interface</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">Expected Subcircuit Name</label>
+            <input type="text" name="expected_subckt" class="form-control" required placeholder="e.g. inverter" value="{val('expected_subckt')}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Expected Pins</label>
+            <input type="text" name="expected_pins" class="form-control" placeholder="in, out, vdd, vss" value="{val('expected_pins')}">
+            <div class="form-text">Comma-separated pin list.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Starter Netlist (Optional)</label>
+            <textarea name="starter_netlist" class="form-control" rows="4" style="font-family:monospace;font-size:12px">{val('starter_netlist')}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Judging & Options -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-gavel"></i> Judging & Options</div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label">Judge Backend</label>
+              <select name="judge_backend" class="form-select">
+                <option value="characterization" {sel('judge_backend', 'characterization', True)}>Characterization</option>
+                <option value="ngspice" {sel('judge_backend', 'ngspice')}>Ngspice</option>
+                <option value="klayout" {sel('judge_backend', 'klayout')}>Klayout</option>
+              </select>
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label">Submission Kind</label>
+              <select name="submission_kind" class="form-select">
+                <option value="netlist" {sel('submission_kind', 'netlist', True)}>Netlist</option>
+                <option value="gds" {sel('submission_kind', 'gds')}>GDS</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label">Score Unit</label>
+              <select name="score_unit" class="form-select">
+                <option value="points" {sel('score_unit', 'points', True)}>points</option>
+                <option value="ps" {sel('score_unit', 'ps')}>ps</option>
+                <option value="uA" {sel('score_unit', 'uA')}>uA</option>
+                <option value="V/V" {sel('score_unit', 'V/V')}>V/V</option>
+                <option value="Hz" {sel('score_unit', 'Hz')}>Hz</option>
+              </select>
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label">Verification Ver.</label>
+              <input type="number" name="verification_version" class="form-control" value="{val('verification_version', '1')}">
+            </div>
+          </div>
+          
+          <hr>
+          
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check('lower_is_better')}>
+            <label class="form-check-label" for="checkLower">Lower score is better</label>
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check('is_active', True)}>
+            <label class="form-check-label" for="checkActive">Active (Visible to users)</label>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>
+            <label class="form-check-label" for="checkRanked">Ranked (Counts towards leaderboard)</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="mt-4 text-center">
+    <button type="submit" class="btn btn-success btn-lg px-5"><i class="fa-solid fa-check"></i> Create Challenge</button>
+  </div>
+</form>
+'''
 
 
 # ---------------------------------------------------------------------------
@@ -619,11 +839,10 @@ def setup_admin(app, engine, settings: Settings) -> Admin:
         title="LeetSpice Admin",
     )
     admin.add_view(ChallengeStatsView)
+    admin.add_view(CreateChallengeView)
     admin.add_view(GlobalLeaderboardView)
     admin.add_view(RecentActivityView)
     admin.add_view(UserAdmin)
     admin.add_view(ChallengeAdmin)
     admin.add_view(SubmissionAdmin)
-    admin.add_view(JudgeRunAdmin)
-    admin.add_view(MeasurementAdmin)
     return admin
