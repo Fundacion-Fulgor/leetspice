@@ -236,6 +236,116 @@ class CreateChallengeView(BaseView):
 
         return RedirectResponse(url="/admin/challenge/list", status_code=302)
 
+
+_PREVIEW_HTML = """
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content" style="background:#f1f0e9;border:0">
+      <div class="modal-header" style="background:#111815;color:#dbff3d;border:0">
+        <h5 class="modal-title" style="font-weight:800;letter-spacing:-1px"><i class="fa-solid fa-eye"></i> Challenge Preview (Vista del Usuario)</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="previewBody"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function showPreview() {
+  const f = document.querySelector('form');
+  const g = k => (f.querySelector('[name="'+k+'"]') || {}).value || '';
+  const ch = k => !!(f.querySelector('[name="'+k+'"]') || {}).checked;
+  const selText = k => { const el = f.querySelector('[name="'+k+'"]'); return el ? el.options[el.selectedIndex].text : ''; };
+
+  const title = g('title') || 'Untitled Challenge';
+  const slug = g('slug') || 'challenge-slug';
+  const summary = g('summary') || 'No summary provided.';
+  const description = g('description') || '';
+  const track = selText('track');
+  const difficulty = selText('difficulty');
+  const subckt = g('expected_subckt') || 'subcircuit';
+  const pins = g('expected_pins') || '';
+  const pinDisplay = pins ? pins.split(',').map(function(p){return p.trim()}).join(' &middot; ') : '&mdash;';
+  const scoreUnit = selText('score_unit');
+  const judgeBackend = g('judge_backend');
+  const starterNetlist = g('starter_netlist') || '* Your SPICE netlist here';
+  const isRanked = ch('is_ranked');
+  const lowerIsBetter = ch('lower_is_better');
+  const verVersion = g('verification_version') || '1';
+  const objective = isRanked ? ((lowerIsBetter ? 'MIN' : 'MAX') + ' ' + scoreUnit) : 'GUIDED LAB';
+  const verification = judgeBackend === 'klayout' ? 'Magic DRC &middot; Netgen LVS &middot; PEX &middot; ngspice' : 'Direct ngspice';
+
+  const descHtml = description
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+
+  var html = '';
+  html += '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#f1f0e9;color:#111815;padding:0">';
+  html += '<div style="padding:45px clamp(20px,5vw,72px) 30px;border-bottom:2px solid #111815;display:flex;justify-content:space-between;align-items:end">';
+  html += '<div>';
+  html += '<p style="font:500 11px monospace;letter-spacing:2px;text-transform:uppercase;color:#d56a3a;margin:0 0 12px">CH-XX / ACTIVE BENCH</p>';
+  html += '<h1 style="font-size:clamp(40px,6vw,78px);letter-spacing:-.065em;line-height:.9;margin:0">'+title+'</h1>';
+  html += '</div>';
+  html += '<div style="border-left:1px solid #c7c9bd;padding:15px 0 15px 30px">';
+  html += '<span style="font:10px monospace;color:#687069;display:block">OBJECTIVE</span>';
+  html += '<strong style="font:20px monospace">'+objective+'</strong>';
+  html += '</div></div>';
+
+  html += '<div style="display:grid;grid-template-columns:1.45fr .85fr;gap:24px;padding:24px clamp(20px,5vw,72px) 40px;align-items:start">';
+  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:28px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+  html += '<h2 style="margin:0;font-size:22px">Design brief</h2>';
+  html += '<span style="font:10px monospace;color:#687069">VERIFICATION v'+verVersion+'</span>';
+  html += '</div>';
+  html += '<p style="max-width:70ch;margin:18px 0 24px;font-size:clamp(17px,1.5vw,21px);font-weight:600;line-height:1.6">'+summary+'</p>';
+
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #111815;margin:0">';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Track</dt><dd style="margin:0">'+track+' &middot; '+difficulty+'</dd></div>';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Verification</dt><dd style="margin:0">'+verification+'</dd></div>';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Subcircuit</dt><dd style="margin:0"><code style="font-family:monospace;background:#f1f0e9;padding:2px 5px">'+subckt+'</code></dd></div>';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Pin order</dt><dd style="margin:0"><code style="font-family:monospace;background:#f1f0e9;padding:2px 5px">'+pinDisplay+'</code></dd></div>';
+  html += '</div>';
+
+  html += '<details style="margin-top:28px;border-top:2px solid #111815;border-bottom:2px solid #111815">';
+  html += '<summary style="display:flex;gap:10px;justify-content:space-between;align-items:center;padding:18px 0;cursor:pointer;list-style:none;font-weight:700"><span>+ Full specification</span><small style="color:#687069;font:10px/1.4 monospace;text-align:right">Requirements, scoring, conditions, and design notes</small></summary>';
+  html += '<div style="padding:8px 0 30px;font-size:16px;line-height:1.75">'+(descHtml || '<em style="color:#888">No description provided.</em>')+'</div>';
+  html += '</details></div>';
+
+  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:28px;position:sticky;top:24px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:22px">Netlist input</h2><span style="font:10px monospace;color:#687069">TEXT / SPICE</span></div>';
+  html += '<pre style="width:100%;min-height:300px;padding:20px;background:#111815;color:#dcff62;border:0;resize:vertical;font:13px/1.65 monospace;overflow:auto;white-space:pre;margin-top:18px">'+starterNetlist+'</pre>';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:18px"><small style="font:11px monospace;color:#687069">Input is submitted exactly as provided.</small><button disabled style="border:0;background:#c7c9bd;color:#687069;font:500 12px monospace;text-transform:uppercase;padding:16px 22px;cursor:not-allowed;opacity:.6">Queue verification</button></div>';
+  html += '</div></div>';
+
+  html += '<div style="padding:0 clamp(20px,5vw,72px) 40px">';
+  html += '<div style="background:#fff;border:2px dashed #d56a3a;border-radius:12px;padding:28px;text-align:center">';
+  html += '<h3 style="color:#d56a3a;margin:0 0 8px;font-size:18px"><i class="fa-solid fa-flask-vial" style="margin-right:8px"></i>Admin Test Zone</h3>';
+  html += '<p style="color:#888;margin:0 0 20px;font-size:13px">Submit a netlist to test that the challenge judging pipeline works correctly. The challenge will be saved first, then the test submission will run.</p>';
+  html += '<div style="max-width:600px;margin:0 auto">';
+  html += '<textarea id="testNetlist" style="width:100%;min-height:180px;padding:16px;background:#111815;color:#dcff62;border:0;font:13px/1.65 monospace;resize:vertical;border-radius:8px" placeholder="* Paste your test netlist here..."></textarea>';
+  html += '<div style="margin-top:12px;display:flex;gap:10px;justify-content:center"><label style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;background:#f8f9fa;border:1px solid #c7c9bd;border-radius:8px;cursor:pointer;font:12px monospace"><i class="fa-solid fa-file-upload" style="color:#d56a3a"></i> Upload .net file<input type="file" accept=".net,.cir,.sp,.spice" style="display:none" onchange="loadTestFile(this)"></label></div>';
+  html += '<p style="margin:16px 0 0;font-size:11px;color:#aaa"><i class="fa-solid fa-circle-info"></i> To perform a real test, first create the challenge, then submit a netlist through the normal user interface.</p>';
+  html += '</div></div></div></div>';
+
+  document.getElementById('previewBody').innerHTML = html;
+  new bootstrap.Modal(document.getElementById('previewModal')).show();
+}
+
+function loadTestFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('testNetlist').value = e.target.result;
+  };
+  reader.readAsText(file);
+}
+</script>
+"""
+
+
 def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
     data = data or {}
     err_html = f'<div class="alert alert-danger">{escape(error)}</div>' if error else ""
@@ -402,11 +512,107 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
     </div>
   </div>
   
-  <div class="mt-4 text-center">
+  <div class="mt-4 text-center d-flex justify-content-center gap-3">
+    <button type="button" class="btn btn-outline-primary btn-lg px-4" onclick="showPreview()"><i class="fa-solid fa-eye"></i> Preview</button>
     <button type="submit" class="btn btn-success btn-lg px-5"><i class="fa-solid fa-check"></i> Create Challenge</button>
   </div>
 </form>
-'''
+''' + _PREVIEW_HTML
+
+
+# ---------------------------------------------------------------------------
+# Admin Home view (landing page)
+# ---------------------------------------------------------------------------
+
+class AdminHomeView(BaseView):
+    name = "Home"
+    icon = "fa-solid fa-house"
+
+    @expose("/admin-home", methods=["GET"])
+    async def admin_home(self, request: Request) -> Response:
+        with SessionLocal() as session:
+            total_users = session.scalar(select(func.count(User.id))) or 0
+            total_challenges = session.scalar(
+                select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
+            ) or 0
+            total_submissions = session.scalar(select(func.count(Submission.id))) or 0
+            today_submissions = session.scalar(
+                select(func.count(Submission.id))
+                .where(Submission.created_at >= func.current_date())
+            ) or 0
+
+        return HTMLResponse(_render_admin_home(
+            total_users, total_challenges, total_submissions, today_submissions,
+        ))
+
+
+def _render_admin_home(
+    total_users: int,
+    total_challenges: int,
+    total_submissions: int,
+    today_submissions: int,
+) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeetSpice Admin</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; margin:0; }}
+.home-hero {{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px 40px; }}
+.home-logo {{ font-size:72px; font-weight:900; letter-spacing:-4px; color:#111815; margin-bottom:8px; line-height:1; }}
+.home-logo span {{ background:#111815; color:#dbff3d; padding:4px 12px; }}
+.home-subtitle {{ font-size:14px; color:#888; letter-spacing:3px; text-transform:uppercase; margin-bottom:40px; }}
+.home-cards {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:20px; max-width:800px; width:100%; margin:0 auto 40px; }}
+.home-card {{ background:white; border-radius:16px; padding:28px 20px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,.06); transition:transform .15s; }}
+.home-card:hover {{ transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,.1); }}
+.home-card .icon {{ font-size:28px; margin-bottom:12px; color:#d56a3a; }}
+.home-card .number {{ font-size:36px; font-weight:800; color:#111815; }}
+.home-card .label {{ font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#888; margin-top:6px; }}
+.home-nav {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; max-width:800px; width:100%; margin:0 auto; }}
+.home-nav a {{ display:flex; align-items:center; gap:14px; padding:18px 22px; background:white; border-radius:12px; text-decoration:none; color:#111815; font-weight:600; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,.05); transition:all .15s; border-left:4px solid transparent; }}
+.home-nav a:hover {{ border-left-color:#dbff3d; background:#f8fff0; transform:translateX(4px); }}
+.home-nav a i {{ font-size:18px; color:#d56a3a; width:24px; text-align:center; }}
+.home-version {{ text-align:center; margin-top:40px; font-size:11px; color:#bbb; letter-spacing:1px; }}
+</style>
+</head>
+<body>
+<div style="background:linear-gradient(135deg,#111815 0%,#1a2318 100%);color:#dbff3d;padding:18px 0">
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-center">
+      <span style="font-weight:800;font-size:18px;letter-spacing:-1px"><span style="background:#dbff3d;color:#111815;padding:2px 8px">LEET</span>SPICE ADMIN</span>
+      <a href="/" style="color:#dbff3d;text-decoration:none;font-size:12px"><i class="fa-solid fa-arrow-up-right-from-square"></i> View Site</a>
+    </div>
+  </div>
+</div>
+<div class="container py-4">
+  <div class="home-hero">
+    <div class="home-logo"><span>LEET</span>SPICE</div>
+    <div class="home-subtitle">Administration Panel</div>
+    <div class="home-cards">
+      <div class="home-card"><div class="icon"><i class="fa-solid fa-users"></i></div><div class="number">{total_users}</div><div class="label">Users</div></div>
+      <div class="home-card"><div class="icon"><i class="fa-solid fa-bolt"></i></div><div class="number">{total_challenges}</div><div class="label">Active Challenges</div></div>
+      <div class="home-card"><div class="icon"><i class="fa-solid fa-paper-plane"></i></div><div class="number">{total_submissions}</div><div class="label">Total Submissions</div></div>
+      <div class="home-card"><div class="icon"><i class="fa-solid fa-clock"></i></div><div class="number">{today_submissions}</div><div class="label">Today</div></div>
+    </div>
+    <div class="home-nav">
+      <a href="/admin/challenge-stats"><i class="fa-solid fa-chart-bar"></i> Challenge Statistics</a>
+      <a href="/admin/create-challenge"><i class="fa-solid fa-plus-circle"></i> New Challenge</a>
+      <a href="/admin/global-ranking"><i class="fa-solid fa-trophy"></i> Global Ranking</a>
+      <a href="/admin/recent-activity"><i class="fa-solid fa-clock-rotate-left"></i> Recent Activity</a>
+      <a href="/admin/challenge/list"><i class="fa-solid fa-bolt"></i> Manage Challenges</a>
+      <a href="/admin/user/list"><i class="fa-solid fa-user"></i> Manage Users</a>
+      <a href="/admin/submission/list"><i class="fa-solid fa-paper-plane"></i> Manage Submissions</a>
+      <a href="/" target="_blank"><i class="fa-solid fa-arrow-up-right-from-square"></i> View Site</a>
+    </div>
+    <div class="home-version">LeetSpice Admin &middot; Fundaci&oacute;n Fulgor &middot; v1.0</div>
+  </div>
+</div>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -838,6 +1044,7 @@ def setup_admin(app, engine, settings: Settings) -> Admin:
         authentication_backend=auth_backend,
         title="LeetSpice Admin",
     )
+    admin.add_view(AdminHomeView)
     admin.add_view(ChallengeStatsView)
     admin.add_view(CreateChallengeView)
     admin.add_view(GlobalLeaderboardView)
