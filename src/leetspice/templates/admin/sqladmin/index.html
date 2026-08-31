@@ -1,0 +1,56 @@
+{% extends "sqladmin/layout.html" %}
+
+{% block content %}
+<style>
+  .ls-home { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:80px 20px 40px; min-height:60vh; }
+  .ls-logo { font-size:72px; font-weight:900; letter-spacing:-4px; color:#111815; margin-bottom:8px; line-height:1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .ls-logo span { background:#111815; color:#dbff3d; padding:4px 12px; }
+  .ls-subtitle { font-size:14px; color:#888; letter-spacing:3px; text-transform:uppercase; margin-bottom:50px; font-family: monospace; }
+  .ls-cards { display:grid; grid-template-columns:repeat(4, 1fr); gap:20px; max-width:800px; width:100%; margin:0 auto; }
+  .ls-card { background:white; border-radius:16px; padding:28px 20px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,.06); transition:transform .15s; }
+  .ls-card:hover { transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,.1); }
+  .ls-card .icon { font-size:28px; margin-bottom:12px; color:#d56a3a; }
+  .ls-card .number { font-size:36px; font-weight:800; color:#111815; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  .ls-card .label { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#888; margin-top:6px; }
+  @media (max-width: 700px) { .ls-cards { grid-template-columns: repeat(2, 1fr); } .ls-logo { font-size:48px; } }
+</style>
+
+<div class="ls-home">
+  <div class="ls-logo"><span>LEET</span>SPICE</div>
+  <div class="ls-subtitle">Administration Panel</div>
+  <div class="ls-cards">
+    <div class="ls-card">
+      <div class="icon"><i class="fa-solid fa-users"></i></div>
+      <div class="number" id="stat-users">—</div>
+      <div class="label">Users</div>
+    </div>
+    <div class="ls-card">
+      <div class="icon"><i class="fa-solid fa-bolt"></i></div>
+      <div class="number" id="stat-challenges">—</div>
+      <div class="label">Active Challenges</div>
+    </div>
+    <div class="ls-card">
+      <div class="icon"><i class="fa-solid fa-paper-plane"></i></div>
+      <div class="number" id="stat-submissions">—</div>
+      <div class="label">Total Submissions</div>
+    </div>
+    <div class="ls-card">
+      <div class="icon"><i class="fa-solid fa-clock"></i></div>
+      <div class="number" id="stat-today">—</div>
+      <div class="label">Today</div>
+    </div>
+  </div>
+</div>
+
+<script>
+fetch('/admin/admin-stats-api')
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    document.getElementById('stat-users').textContent = d.users;
+    document.getElementById('stat-challenges').textContent = d.challenges;
+    document.getElementById('stat-submissions').textContent = d.submissions;
+    document.getElementById('stat-today').textContent = d.today;
+  })
+  .catch(function() {});
+</script>
+{% endblock %}

@@ -520,16 +520,21 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
 ''' + _PREVIEW_HTML
 
 
+
 # ---------------------------------------------------------------------------
-# Admin Home view (landing page)
+# Admin Stats API (for the index page)
 # ---------------------------------------------------------------------------
 
-class AdminHomeView(BaseView):
-    name = "Home"
-    icon = "fa-solid fa-house"
+class AdminStatsAPI(BaseView):
+    name = "Stats API"
+    icon = "fa-solid fa-code"
+    
+    def is_visible(self, request: Request) -> bool:
+        return False
 
-    @expose("/admin-home", methods=["GET"])
-    async def admin_home(self, request: Request) -> Response:
+    @expose("/admin-stats-api", methods=["GET"])
+    async def stats_api(self, request: Request) -> Response:
+        import json as _json
         with SessionLocal() as session:
             total_users = session.scalar(select(func.count(User.id))) or 0
             total_challenges = session.scalar(
@@ -540,79 +545,15 @@ class AdminHomeView(BaseView):
                 select(func.count(Submission.id))
                 .where(Submission.created_at >= func.current_date())
             ) or 0
-
-        return HTMLResponse(_render_admin_home(
-            total_users, total_challenges, total_submissions, today_submissions,
-        ))
-
-
-def _render_admin_home(
-    total_users: int,
-    total_challenges: int,
-    total_submissions: int,
-    today_submissions: int,
-) -> str:
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LeetSpice Admin</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-<style>
-body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; margin:0; }}
-.home-hero {{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px 40px; }}
-.home-logo {{ font-size:72px; font-weight:900; letter-spacing:-4px; color:#111815; margin-bottom:8px; line-height:1; }}
-.home-logo span {{ background:#111815; color:#dbff3d; padding:4px 12px; }}
-.home-subtitle {{ font-size:14px; color:#888; letter-spacing:3px; text-transform:uppercase; margin-bottom:40px; }}
-.home-cards {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:20px; max-width:800px; width:100%; margin:0 auto 40px; }}
-.home-card {{ background:white; border-radius:16px; padding:28px 20px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,.06); transition:transform .15s; }}
-.home-card:hover {{ transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,.1); }}
-.home-card .icon {{ font-size:28px; margin-bottom:12px; color:#d56a3a; }}
-.home-card .number {{ font-size:36px; font-weight:800; color:#111815; }}
-.home-card .label {{ font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#888; margin-top:6px; }}
-.home-nav {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; max-width:800px; width:100%; margin:0 auto; }}
-.home-nav a {{ display:flex; align-items:center; gap:14px; padding:18px 22px; background:white; border-radius:12px; text-decoration:none; color:#111815; font-weight:600; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,.05); transition:all .15s; border-left:4px solid transparent; }}
-.home-nav a:hover {{ border-left-color:#dbff3d; background:#f8fff0; transform:translateX(4px); }}
-.home-nav a i {{ font-size:18px; color:#d56a3a; width:24px; text-align:center; }}
-.home-version {{ text-align:center; margin-top:40px; font-size:11px; color:#bbb; letter-spacing:1px; }}
-</style>
-</head>
-<body>
-<div style="background:linear-gradient(135deg,#111815 0%,#1a2318 100%);color:#dbff3d;padding:18px 0">
-  <div class="container">
-    <div class="d-flex justify-content-between align-items-center">
-      <span style="font-weight:800;font-size:18px;letter-spacing:-1px"><span style="background:#dbff3d;color:#111815;padding:2px 8px">LEET</span>SPICE ADMIN</span>
-      <a href="/" style="color:#dbff3d;text-decoration:none;font-size:12px"><i class="fa-solid fa-arrow-up-right-from-square"></i> View Site</a>
-    </div>
-  </div>
-</div>
-<div class="container py-4">
-  <div class="home-hero">
-    <div class="home-logo"><span>LEET</span>SPICE</div>
-    <div class="home-subtitle">Administration Panel</div>
-    <div class="home-cards">
-      <div class="home-card"><div class="icon"><i class="fa-solid fa-users"></i></div><div class="number">{total_users}</div><div class="label">Users</div></div>
-      <div class="home-card"><div class="icon"><i class="fa-solid fa-bolt"></i></div><div class="number">{total_challenges}</div><div class="label">Active Challenges</div></div>
-      <div class="home-card"><div class="icon"><i class="fa-solid fa-paper-plane"></i></div><div class="number">{total_submissions}</div><div class="label">Total Submissions</div></div>
-      <div class="home-card"><div class="icon"><i class="fa-solid fa-clock"></i></div><div class="number">{today_submissions}</div><div class="label">Today</div></div>
-    </div>
-    <div class="home-nav">
-      <a href="/admin/challenge-stats"><i class="fa-solid fa-chart-bar"></i> Challenge Statistics</a>
-      <a href="/admin/create-challenge"><i class="fa-solid fa-plus-circle"></i> New Challenge</a>
-      <a href="/admin/global-ranking"><i class="fa-solid fa-trophy"></i> Global Ranking</a>
-      <a href="/admin/recent-activity"><i class="fa-solid fa-clock-rotate-left"></i> Recent Activity</a>
-      <a href="/admin/challenge/list"><i class="fa-solid fa-bolt"></i> Manage Challenges</a>
-      <a href="/admin/user/list"><i class="fa-solid fa-user"></i> Manage Users</a>
-      <a href="/admin/submission/list"><i class="fa-solid fa-paper-plane"></i> Manage Submissions</a>
-      <a href="/" target="_blank"><i class="fa-solid fa-arrow-up-right-from-square"></i> View Site</a>
-    </div>
-    <div class="home-version">LeetSpice Admin &middot; Fundaci&oacute;n Fulgor &middot; v1.0</div>
-  </div>
-</div>
-</body>
-</html>"""
+        return Response(
+            _json.dumps({
+                "users": total_users,
+                "challenges": total_challenges,
+                "submissions": total_submissions,
+                "today": today_submissions,
+            }),
+            media_type="application/json",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1037,14 +978,17 @@ def _render_activity_page(
 # ---------------------------------------------------------------------------
 
 def setup_admin(app, engine, settings: Settings) -> Admin:
+    import pathlib as _pathlib
     auth_backend = AdminAuth(settings)
+    _tpl_dir = str(_pathlib.Path(__file__).resolve().parent / "templates" / "admin")
     admin = Admin(
         app,
         engine,
         authentication_backend=auth_backend,
         title="LeetSpice Admin",
+        templates_dir=_tpl_dir,
     )
-    admin.add_view(AdminHomeView)
+    admin.add_view(AdminStatsAPI)
     admin.add_view(ChallengeStatsView)
     admin.add_view(CreateChallengeView)
     admin.add_view(GlobalLeaderboardView)
@@ -1053,3 +997,4 @@ def setup_admin(app, engine, settings: Settings) -> Admin:
     admin.add_view(ChallengeAdmin)
     admin.add_view(SubmissionAdmin)
     return admin
+
