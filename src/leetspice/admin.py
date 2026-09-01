@@ -364,7 +364,7 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
 
     return f'''
 {err_html}
-<form method="post" action="/admin/create-challenge">
+<form method="post" action="#" onsubmit="event.preventDefault(); alert('Formulario deshabilitado por el momento.');">
   <div class="row g-4">
     <!-- Basic Info -->
     <div class="col-md-6">
@@ -551,7 +551,7 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
   </div>
   
   <div class="mt-4 text-center d-flex justify-content-center gap-3">
-    <button type="button" class="btn btn-outline-primary btn-lg px-4" onclick="showPreview()"><i class="fa-solid fa-eye"></i> Preview</button>
+    <button type="button" class="btn btn-outline-primary btn-lg px-4" onclick="alert('Previsualización deshabilitada por el momento.');"><i class="fa-solid fa-eye"></i> Preview</button>
     <button type="submit" class="btn btn-success btn-lg px-5"><i class="fa-solid fa-check"></i> Create Challenge</button>
   </div>
 </form>
@@ -825,8 +825,8 @@ def _render_stats_page(
         <th style="text-align:right">Submissions</th><th style="text-align:right">Accepted</th>
         <th style="text-align:right">Failed</th><th style="text-align:right">Queued</th>
         <th style="text-align:right">Accept %</th><th style="text-align:right">Users</th>
-        <th style="text-align:right">Solved By</th><th style="text-align:right">Avg Score</th>
-        <th style="text-align:right">Best Score</th>
+        <th style="text-align:right">Solved By</th><th style="text-align:right" title="Raw ngspice measurement">Avg Result</th>
+        <th style="text-align:right" title="Raw ngspice measurement">Best Result</th>
       </tr></thead>
       <tbody>{rows or empty}</tbody>
     </table></div>
