@@ -201,6 +201,24 @@ class CreateChallengeView(BaseView):
 
         pin_list = [p.strip() for p in expected_pins.split(",") if p.strip()]
 
+        # New fields
+        fixture_path = form.get("fixture_path", "").strip() or None
+        judge_def = form.get("judge_definition", "judge/definition.yaml").strip()
+        max_bytes = int(form.get("maximum_bytes", 8388608))
+        sub_extensions_raw = form.get("submission_extensions", "").strip()
+        prerequisites_raw = form.get("prerequisites", "").strip()
+
+        import json as _json
+        judge_cfg = {}
+        if judge_backend == "characterization":
+            judge_cfg = {"definition": judge_def}
+        elif judge_backend == "klayout":
+            ref_netlist = form.get("reference_netlist", "").strip()
+            judge_cfg = {"definition": judge_def, "reference_netlist": ref_netlist, "drc_density": False, "pex_mode": "coupled_c"}
+        sub_exts = [e.strip() for e in sub_extensions_raw.split(",") if e.strip()] if sub_extensions_raw else []
+        sub_cfg = {"maximum_bytes": max_bytes, "extensions": sub_exts}
+        prereqs = [s.strip() for s in prerequisites_raw.split(",") if s.strip()] if prerequisites_raw else []
+
         with SessionLocal() as session:
             existing = session.scalar(select(Challenge).where(Challenge.slug == slug))
             if existing:
@@ -226,10 +244,11 @@ class CreateChallengeView(BaseView):
                 is_active=is_active,
                 is_ranked=is_ranked,
                 verification_version=verification_version,
-                submission_config={},
-                judge_config={},
+                fixture_path=fixture_path,
+                submission_config=sub_cfg,
+                judge_config=judge_cfg,
                 assets=[],
-                prerequisites=[]
+                prerequisites=prereqs,
             )
             session.add(challenge)
             session.commit()
@@ -254,93 +273,73 @@ _PREVIEW_HTML = """
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function showPreview() {
-  const f = document.querySelector('form');
-  const g = k => (f.querySelector('[name="'+k+'"]') || {}).value || '';
-  const ch = k => !!(f.querySelector('[name="'+k+'"]') || {}).checked;
-  const selText = k => { const el = f.querySelector('[name="'+k+'"]'); return el ? el.options[el.selectedIndex].text : ''; };
+  var f = document.querySelector('form');
+  function g(k) { var el = f.querySelector('[name="'+k+'"]'); return el ? el.value : ''; }
+  function ch(k) { var el = f.querySelector('[name="'+k+'"]'); return el ? el.checked : false; }
+  function selText(k) { var el = f.querySelector('[name="'+k+'"]'); return el && el.selectedIndex >= 0 ? el.options[el.selectedIndex].text : ''; }
 
-  const title = g('title') || 'Untitled Challenge';
-  const slug = g('slug') || 'challenge-slug';
-  const summary = g('summary') || 'No summary provided.';
-  const description = g('description') || '';
-  const track = selText('track');
-  const difficulty = selText('difficulty');
-  const subckt = g('expected_subckt') || 'subcircuit';
-  const pins = g('expected_pins') || '';
-  const pinDisplay = pins ? pins.split(',').map(function(p){return p.trim()}).join(' &middot; ') : '&mdash;';
-  const scoreUnit = selText('score_unit');
-  const judgeBackend = g('judge_backend');
-  const starterNetlist = g('starter_netlist') || '* Your SPICE netlist here';
-  const isRanked = ch('is_ranked');
-  const lowerIsBetter = ch('lower_is_better');
-  const verVersion = g('verification_version') || '1';
-  const objective = isRanked ? ((lowerIsBetter ? 'MIN' : 'MAX') + ' ' + scoreUnit) : 'GUIDED LAB';
-  const verification = judgeBackend === 'klayout' ? 'Magic DRC &middot; Netgen LVS &middot; PEX &middot; ngspice' : 'Direct ngspice';
+  var title = g('title') || 'Untitled Challenge';
+  var summary = g('summary') || 'No summary provided.';
+  var description = g('description') || '';
+  var track = selText('track');
+  var difficulty = selText('difficulty');
+  var subckt = g('expected_subckt') || 'subcircuit';
+  var pins = g('expected_pins') || '';
+  var pinDisplay = pins ? pins.split(',').map(function(p){ return p.trim(); }).join(' \u00b7 ') : '\u2014';
+  var scoreUnit = selText('score_unit');
+  var judgeBackend = g('judge_backend');
+  var starterNetlist = g('starter_netlist') || '* Your SPICE netlist here';
+  var isRanked = ch('is_ranked');
+  var lowerIsBetter = ch('lower_is_better');
+  var verVersion = g('verification_version') || '1';
+  var fixturePath = g('fixture_path') || g('slug') || '(not set)';
+  var objective = isRanked ? ((lowerIsBetter ? 'MIN' : 'MAX') + ' ' + scoreUnit) : 'GUIDED LAB';
+  var verification = judgeBackend === 'klayout' ? 'Magic DRC \u00b7 Netgen LVS \u00b7 PEX \u00b7 ngspice' : 'Direct ngspice';
 
-  const descHtml = description
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
+  var descHtml = description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 
   var html = '';
   html += '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#f1f0e9;color:#111815;padding:0">';
-  html += '<div style="padding:45px clamp(20px,5vw,72px) 30px;border-bottom:2px solid #111815;display:flex;justify-content:space-between;align-items:end">';
-  html += '<div>';
-  html += '<p style="font:500 11px monospace;letter-spacing:2px;text-transform:uppercase;color:#d56a3a;margin:0 0 12px">CH-XX / ACTIVE BENCH</p>';
-  html += '<h1 style="font-size:clamp(40px,6vw,78px);letter-spacing:-.065em;line-height:.9;margin:0">'+title+'</h1>';
-  html += '</div>';
-  html += '<div style="border-left:1px solid #c7c9bd;padding:15px 0 15px 30px">';
-  html += '<span style="font:10px monospace;color:#687069;display:block">OBJECTIVE</span>';
-  html += '<strong style="font:20px monospace">'+objective+'</strong>';
-  html += '</div></div>';
 
-  html += '<div style="display:grid;grid-template-columns:1.45fr .85fr;gap:24px;padding:24px clamp(20px,5vw,72px) 40px;align-items:start">';
-  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:28px">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center">';
-  html += '<h2 style="margin:0;font-size:22px">Design brief</h2>';
-  html += '<span style="font:10px monospace;color:#687069">VERIFICATION v'+verVersion+'</span>';
-  html += '</div>';
-  html += '<p style="max-width:70ch;margin:18px 0 24px;font-size:clamp(17px,1.5vw,21px);font-weight:600;line-height:1.6">'+summary+'</p>';
+  html += '<div style="padding:40px clamp(20px,5vw,72px) 28px;border-bottom:2px solid #111815;display:flex;justify-content:space-between;align-items:end">';
+  html += '<div><p style="font:500 11px monospace;letter-spacing:2px;text-transform:uppercase;color:#d56a3a;margin:0 0 10px">CH-XX / ACTIVE BENCH</p>';
+  html += '<h1 style="font-size:clamp(36px,5vw,64px);letter-spacing:-.04em;line-height:.95;margin:0">'+title+'</h1></div>';
+  html += '<div style="border-left:1px solid #c7c9bd;padding:12px 0 12px 24px"><span style="font:10px monospace;color:#687069;display:block">OBJECTIVE</span>';
+  html += '<strong style="font:18px monospace">'+objective+'</strong></div></div>';
 
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #111815;margin:0">';
-  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Track</dt><dd style="margin:0">'+track+' &middot; '+difficulty+'</dd></div>';
-  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Verification</dt><dd style="margin:0">'+verification+'</dd></div>';
-  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Subcircuit</dt><dd style="margin:0"><code style="font-family:monospace;background:#f1f0e9;padding:2px 5px">'+subckt+'</code></dd></div>';
-  html += '<div style="padding:16px 18px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:7px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Pin order</dt><dd style="margin:0"><code style="font-family:monospace;background:#f1f0e9;padding:2px 5px">'+pinDisplay+'</code></dd></div>';
+  html += '<div style="display:grid;grid-template-columns:1.45fr .85fr;gap:24px;padding:24px clamp(20px,5vw,72px) 36px;align-items:start">';
+
+  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:24px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:20px">Design brief</h2>';
+  html += '<span style="font:10px monospace;color:#687069">VERIFICATION v'+verVersion+'</span></div>';
+  html += '<p style="max-width:70ch;margin:14px 0 20px;font-size:clamp(16px,1.3vw,19px);font-weight:600;line-height:1.55">'+summary+'</p>';
+
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #111815">';
+  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Track</dt><dd style="margin:0">'+track+' \u00b7 '+difficulty+'</dd></div>';
+  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Verification</dt><dd style="margin:0">'+verification+'</dd></div>';
+  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Subcircuit</dt><dd style="margin:0"><code style="background:#f1f0e9;padding:2px 5px;font-family:monospace">'+subckt+'</code></dd></div>';
+  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Pin order</dt><dd style="margin:0"><code style="background:#f1f0e9;padding:2px 5px;font-family:monospace">'+pinDisplay+'</code></dd></div>';
   html += '</div>';
 
-  html += '<details style="margin-top:28px;border-top:2px solid #111815;border-bottom:2px solid #111815">';
-  html += '<summary style="display:flex;gap:10px;justify-content:space-between;align-items:center;padding:18px 0;cursor:pointer;list-style:none;font-weight:700"><span>+ Full specification</span><small style="color:#687069;font:10px/1.4 monospace;text-align:right">Requirements, scoring, conditions, and design notes</small></summary>';
-  html += '<div style="padding:8px 0 30px;font-size:16px;line-height:1.75">'+(descHtml || '<em style="color:#888">No description provided.</em>')+'</div>';
+  html += '<details style="margin-top:24px;border-top:2px solid #111815;border-bottom:2px solid #111815">';
+  html += '<summary style="display:flex;gap:10px;justify-content:space-between;align-items:center;padding:16px 0;cursor:pointer;list-style:none;font-weight:700"><span>+ Full specification</span><small style="color:#687069;font:10px/1.4 monospace;text-align:right">Requirements, scoring, conditions</small></summary>';
+  html += '<div style="padding:8px 0 28px;font-size:15px;line-height:1.7">'+(descHtml || '<em style="color:#888">No description provided.</em>')+'</div>';
   html += '</details></div>';
 
-  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:28px;position:sticky;top:24px">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:22px">Netlist input</h2><span style="font:10px monospace;color:#687069">TEXT / SPICE</span></div>';
-  html += '<pre style="width:100%;min-height:300px;padding:20px;background:#111815;color:#dcff62;border:0;resize:vertical;font:13px/1.65 monospace;overflow:auto;white-space:pre;margin-top:18px">'+starterNetlist+'</pre>';
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:18px"><small style="font:11px monospace;color:#687069">Input is submitted exactly as provided.</small><button disabled style="border:0;background:#c7c9bd;color:#687069;font:500 12px monospace;text-transform:uppercase;padding:16px 22px;cursor:not-allowed;opacity:.6">Queue verification</button></div>';
+  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:24px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:20px">Netlist input</h2><span style="font:10px monospace;color:#687069">TEXT / SPICE</span></div>';
+  html += '<pre style="width:100%;min-height:250px;padding:18px;background:#111815;color:#dcff62;border:0;font:13px/1.6 monospace;overflow:auto;white-space:pre;margin-top:16px">'+starterNetlist+'</pre>';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px"><small style="font:11px monospace;color:#687069">Input is submitted exactly as provided.</small>';
+  html += '<button disabled style="border:0;background:#c7c9bd;color:#687069;font:500 11px monospace;text-transform:uppercase;padding:14px 20px;cursor:not-allowed;opacity:.6">Queue verification</button></div>';
   html += '</div></div>';
 
-  html += '<div style="padding:0 clamp(20px,5vw,72px) 40px">';
-  html += '<div style="background:#fff;border:2px dashed #d56a3a;border-radius:12px;padding:28px;text-align:center">';
-  html += '<h3 style="color:#d56a3a;margin:0 0 8px;font-size:18px"><i class="fa-solid fa-flask-vial" style="margin-right:8px"></i>Admin Test Zone</h3>';
-  html += '<p style="color:#888;margin:0 0 20px;font-size:13px">Submit a netlist to test that the challenge judging pipeline works correctly. The challenge will be saved first, then the test submission will run.</p>';
-  html += '<div style="max-width:600px;margin:0 auto">';
-  html += '<textarea id="testNetlist" style="width:100%;min-height:180px;padding:16px;background:#111815;color:#dcff62;border:0;font:13px/1.65 monospace;resize:vertical;border-radius:8px" placeholder="* Paste your test netlist here..."></textarea>';
-  html += '<div style="margin-top:12px;display:flex;gap:10px;justify-content:center"><label style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;background:#f8f9fa;border:1px solid #c7c9bd;border-radius:8px;cursor:pointer;font:12px monospace"><i class="fa-solid fa-file-upload" style="color:#d56a3a"></i> Upload .net file<input type="file" accept=".net,.cir,.sp,.spice" style="display:none" onchange="loadTestFile(this)"></label></div>';
-  html += '<p style="margin:16px 0 0;font-size:11px;color:#aaa"><i class="fa-solid fa-circle-info"></i> To perform a real test, first create the challenge, then submit a netlist through the normal user interface.</p>';
-  html += '</div></div></div></div>';
+  html += '<div style="padding:0 clamp(20px,5vw,72px) 8px"><div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px 20px;font-size:12px;color:#664d03">';
+  html += '<strong><i class="fa-solid fa-info-circle"></i> Admin Info:</strong> fixture_path = <code>'+fixturePath+'</code> &mdash; ';
+  html += 'Ensure <code>/app/challenges/'+fixturePath+'/judge/definition.yaml</code> and testbench files exist before activating.</div></div>';
+  html += '</div>';
 
   document.getElementById('previewBody').innerHTML = html;
   new bootstrap.Modal(document.getElementById('previewModal')).show();
-}
-
-function loadTestFile(input) {
-  var file = input.files[0];
-  if (!file) return;
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    document.getElementById('testNetlist').value = e.target.result;
-  };
-  reader.readAsText(file);
 }
 </script>
 """
@@ -373,21 +372,23 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
         <div class="card-header bg-dark text-white"><i class="fa-solid fa-align-left"></i> Basic Info</div>
         <div class="card-body">
           <div class="mb-3">
-            <label class="form-label">Slug</label>
+            <label class="form-label fw-bold">Slug</label>
             <input type="text" name="slug" class="form-control" required placeholder="e.g. basic-current-mirror" value="{val('slug')}">
-            <div class="form-text">Unique URL identifier.</div>
+            <div class="form-text">Unique URL identifier. Also used as <code>fixture_path</code> if left blank below.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label">Title</label>
+            <label class="form-label fw-bold">Title</label>
             <input type="text" name="title" class="form-control" required value="{val('title')}">
           </div>
           <div class="mb-3">
-            <label class="form-label">Summary</label>
+            <label class="form-label fw-bold">Summary</label>
             <input type="text" name="summary" class="form-control" required value="{val('summary')}">
+            <div class="form-text">One-liner that appears on challenge cards.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label">Description</label>
-            <textarea name="description" class="form-control" rows="4" required>{val('description')}</textarea>
+            <label class="form-label fw-bold">Description (Markdown)</label>
+            <textarea name="description" class="form-control" rows="5" required>{val('description')}</textarea>
+            <div class="form-text">Full specification. Supports Markdown formatting.</div>
           </div>
         </div>
       </div>
@@ -399,7 +400,7 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
         <div class="card-header bg-dark text-white"><i class="fa-solid fa-tags"></i> Classification</div>
         <div class="card-body">
           <div class="mb-3">
-            <label class="form-label">Track</label>
+            <label class="form-label fw-bold">Track</label>
             <select name="track" class="form-select">
               <option value="MOS Foundations" {sel('track', 'MOS Foundations', True)}>MOS Foundations</option>
               <option value="Biasing" {sel('track', 'Biasing')}>Biasing</option>
@@ -410,23 +411,28 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
             </select>
           </div>
           <div class="mb-3">
-            <label class="form-label">Difficulty</label>
+            <label class="form-label fw-bold">Difficulty</label>
             <select name="difficulty" class="form-select">
-              <option value="introductory" {sel('difficulty', 'introductory', True)}>Introductory</option>
-              <option value="intermediate" {sel('difficulty', 'intermediate')}>Intermediate</option>
-              <option value="advanced" {sel('difficulty', 'advanced')}>Advanced</option>
-              <option value="capstone" {sel('difficulty', 'capstone')}>Capstone</option>
+              <option value="introductory" {sel('difficulty', 'introductory', True)}>Introductory (x1 pts)</option>
+              <option value="intermediate" {sel('difficulty', 'intermediate')}>Intermediate (x2 pts)</option>
+              <option value="advanced" {sel('difficulty', 'advanced')}>Advanced (x3 pts)</option>
+              <option value="capstone" {sel('difficulty', 'capstone')}>Capstone (x4 pts)</option>
             </select>
           </div>
           <div class="row">
             <div class="col-6 mb-3">
-              <label class="form-label">Curriculum Order</label>
+              <label class="form-label fw-bold">Curriculum Order</label>
               <input type="number" name="curriculum_order" class="form-control" value="{val('curriculum_order', '0')}">
             </div>
             <div class="col-6 mb-3">
-              <label class="form-label">Category</label>
+              <label class="form-label fw-bold">Category</label>
               <input type="text" name="category" class="form-control" value="{val('category', 'General')}">
             </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Prerequisites</label>
+            <input type="text" name="prerequisites" class="form-control" placeholder="e.g. basic-current-mirror, common-source" value="{val('prerequisites')}">
+            <div class="form-text">Comma-separated slugs of challenges that must be solved first.</div>
           </div>
         </div>
       </div>
@@ -438,30 +444,32 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
         <div class="card-header bg-dark text-white"><i class="fa-solid fa-microchip"></i> Circuit Interface</div>
         <div class="card-body">
           <div class="mb-3">
-            <label class="form-label">Expected Subcircuit Name</label>
-            <input type="text" name="expected_subckt" class="form-control" required placeholder="e.g. inverter" value="{val('expected_subckt')}">
+            <label class="form-label fw-bold">Expected Subcircuit Name</label>
+            <input type="text" name="expected_subckt" class="form-control" required placeholder="e.g. basic_current_mirror" value="{val('expected_subckt')}">
+            <div class="form-text">Exact <code>.subckt</code> name the student must define.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label">Expected Pins</label>
-            <input type="text" name="expected_pins" class="form-control" placeholder="in, out, vdd, vss" value="{val('expected_pins')}">
-            <div class="form-text">Comma-separated pin list.</div>
+            <label class="form-label fw-bold">Expected Pins</label>
+            <input type="text" name="expected_pins" class="form-control" placeholder="iref, out, vss" value="{val('expected_pins')}">
+            <div class="form-text">Comma-separated pin list, in the exact order expected by the testbench.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label">Starter Netlist (Optional)</label>
+            <label class="form-label fw-bold">Starter Netlist (Optional)</label>
             <textarea name="starter_netlist" class="form-control" rows="4" style="font-family:monospace;font-size:12px">{val('starter_netlist')}</textarea>
+            <div class="form-text">Initial code the student sees in the editor.</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Judging & Options -->
+    <!-- Judging Configuration -->
     <div class="col-md-6">
       <div class="card shadow-sm h-100">
-        <div class="card-header bg-dark text-white"><i class="fa-solid fa-gavel"></i> Judging & Options</div>
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-gavel"></i> Judging Configuration</div>
         <div class="card-body">
           <div class="row">
             <div class="col-6 mb-3">
-              <label class="form-label">Judge Backend</label>
+              <label class="form-label fw-bold">Judge Backend</label>
               <select name="judge_backend" class="form-select">
                 <option value="characterization" {sel('judge_backend', 'characterization', True)}>Characterization</option>
                 <option value="ngspice" {sel('judge_backend', 'ngspice')}>Ngspice</option>
@@ -469,16 +477,47 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
               </select>
             </div>
             <div class="col-6 mb-3">
-              <label class="form-label">Submission Kind</label>
+              <label class="form-label fw-bold">Submission Kind</label>
               <select name="submission_kind" class="form-select">
                 <option value="netlist" {sel('submission_kind', 'netlist', True)}>Netlist</option>
                 <option value="gds" {sel('submission_kind', 'gds')}>GDS</option>
               </select>
             </div>
           </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Fixture Path</label>
+            <input type="text" name="fixture_path" class="form-control" placeholder="e.g. basic-current-mirror" value="{val('fixture_path')}">
+            <div class="form-text">Directory name under <code>/app/challenges/</code> containing <code>judge/definition.yaml</code> and testbench files. If blank, defaults to the slug.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Judge Definition Path</label>
+            <input type="text" name="judge_definition" class="form-control" value="{val('judge_definition', 'judge/definition.yaml')}">
+            <div class="form-text">Path to <code>definition.yaml</code> inside the fixture directory. Defines tests, measurements, and scoring.</div>
+          </div>
           <div class="row">
             <div class="col-6 mb-3">
-              <label class="form-label">Score Unit</label>
+              <label class="form-label fw-bold">Max Upload Size (bytes)</label>
+              <input type="number" name="maximum_bytes" class="form-control" value="{val('maximum_bytes', '8388608')}">
+              <div class="form-text">Default: 8 MB</div>
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label fw-bold">Allowed Extensions</label>
+              <input type="text" name="submission_extensions" class="form-control" placeholder="e.g. .gds" value="{val('submission_extensions')}">
+              <div class="form-text">Comma-separated. Leave blank for netlist.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scoring & Options -->
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-sliders"></i> Scoring & Options</div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-3 mb-3">
+              <label class="form-label fw-bold">Score Unit</label>
               <select name="score_unit" class="form-select">
                 <option value="points" {sel('score_unit', 'points', True)}>points</option>
                 <option value="ps" {sel('score_unit', 'ps')}>ps</option>
@@ -487,25 +526,24 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
                 <option value="Hz" {sel('score_unit', 'Hz')}>Hz</option>
               </select>
             </div>
-            <div class="col-6 mb-3">
-              <label class="form-label">Verification Ver.</label>
+            <div class="col-md-3 mb-3">
+              <label class="form-label fw-bold">Verification Ver.</label>
               <input type="number" name="verification_version" class="form-control" value="{val('verification_version', '1')}">
             </div>
-          </div>
-          
-          <hr>
-          
-          <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check('lower_is_better')}>
-            <label class="form-check-label" for="checkLower">Lower score is better</label>
-          </div>
-          <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check('is_active', True)}>
-            <label class="form-check-label" for="checkActive">Active (Visible to users)</label>
-          </div>
-          <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>
-            <label class="form-check-label" for="checkRanked">Ranked (Counts towards leaderboard)</label>
+            <div class="col-md-6 d-flex align-items-end gap-4 mb-3">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check('lower_is_better')}>
+                <label class="form-check-label" for="checkLower">Lower score is better</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check('is_active', True)}>
+                <label class="form-check-label" for="checkActive">Active</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>
+                <label class="form-check-label" for="checkRanked">Ranked</label>
+              </div>
+            </div>
           </div>
         </div>
       </div>
