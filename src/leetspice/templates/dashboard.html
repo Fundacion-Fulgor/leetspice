@@ -1,6 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Dashboard · LeetSpice{% endblock %}
 {% block content %}
+<style>
+  .metrics-grid {
+    display: flex;
+    flex-direction: column;
+    margin-top: 15px;
+  }
+  .metric-card {
+    display: flex;
+    justify-content: space-between; /* Esto empuja el título a la izquierda y el valor a la derecha */
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .metric-card span {
+    color: var(--muted);
+    font: 11px 'DM Mono', monospace;
+  }
+  .metric-card strong {
+    font: 16px 'DM Mono', monospace;
+  }
+</style>
 <section class="challenge-title"><div><p class="eyebrow">PERSONAL OVERVIEW</p><h1>{{ current_user.display_name }}</h1></div><div class="metric"><span>STREAK</span><strong>{{ streak }} DAY{{ "S" if streak != 1 else "" }}</strong></div></section>
 <section class="panel dashboard-metrics">
   <div class="panel-head"><h2>Performance summary</h2><span>LIVE</span></div>
