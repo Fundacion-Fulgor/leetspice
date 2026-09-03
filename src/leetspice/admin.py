@@ -1,6 +1,10 @@
 """SQLAdmin panel with session-based authentication, statistics, and leaderboard."""
 
 from html import escape
+import anyio
+if not hasattr(anyio, "from_thread"):
+    from anyio import from_thread
+    anyio.from_thread = from_thread
 
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
