@@ -235,9 +235,9 @@ def process_one(session_factory: Callable[[], Any], model: type[Any], backend: A
             if not isinstance(result, JudgeResult):
                 raise TypeError("judge backend must return JudgeResult")
             _store_result(job, result, backend_name)
-        except Exception as error:  # Persist backend failures rather than losing the job.
+        except Exception:  # Persist backend failures rather than losing the job.
             LOGGER.exception("judge job %s failed", job_id)
-            result = JudgeResult(False, 0.0, message=f"worker error: {error}")
+            result = JudgeResult(False, 0.0, message="worker error: internal judge failure")
             try:
                 _store_result(job, result, backend_name)
                 _set_status(job, ("failed", "rejected"))

@@ -74,6 +74,10 @@ class CharacterizationJudge:
         """Characterize a server-generated PEX netlist after DRC and LVS."""
 
         try:
+            import re
+            if re.search(r"^\s*\.(system|shell|control|exec|include|lib)", netlist, re.IGNORECASE | re.MULTILINE):
+                raise ValueError("PEX netlist contains forbidden SPICE directives injected via GDS labels")
+
             challenge_root = (self.challenges_path / fixture_path).resolve()
             challenge_root.relative_to(self.challenges_path.resolve())
             definition_path = config.get("post_layout_definition")

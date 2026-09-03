@@ -59,7 +59,7 @@ class LayoutJudge:
         try:
             reference.relative_to(challenge_root)
         except ValueError:
-            return JudgeResult(False, 0.0, message="invalid layout reference path")
+            return JudgeResult(False, 0.0, message="reference netlist escapes challenge root")
         if not reference.is_file():
             return JudgeResult(False, 0.0, message="layout reference netlist is missing")
 
@@ -73,8 +73,20 @@ class LayoutJudge:
                 work = Path(directory)
                 gds = work / "submission.gds"
                 gds.write_bytes(payload)
-                area, cell_count = self._inspect(gds, expected_top)
-                magic = MagicRunner(pdk_root=self.pdk_root, timeout=self.timeout)
+
+                def rem_time():
+                    t = deadline - time.monotonic()
+                    if t <= 0: raise subprocess.TimeoutExpired("layout", self.timeout)
+                    return t
+
+                try:
+                    with ProcessPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(self._inspect, gds, expected_top)
+                        area, cell_count = future.result(timeout=rem_time())
+                except Exception:
+                    return JudgeResult(False, 0.0, message="GDSII parsing failed: malformed layout or crash")
+
+                magic = MagicRunner(pdk_root=self.pdk_root, timeout=rem_time())
                 violations = magic.drc(gds, expected_top, work)
                 if violations:
                     return JudgeResult(
@@ -87,9 +99,11 @@ class LayoutJudge:
                         ),
                         f"DRC failed with {violations} violation(s)",
                     )
+                
+                magic.timeout = rem_time()
                 extracted = magic.extract_lvs(gds, expected_top, work)
                 try:
-                    NetgenRunner(pdk_root=self.pdk_root, timeout=self.timeout).lvs(
+                    NetgenRunner(pdk_root=self.pdk_root, timeout=rem_time()).lvs(
                         extracted, reference, expected_top, work
                     )
                 except ValueError:
@@ -108,6 +122,8 @@ class LayoutJudge:
                             expected_pins,
                         ),
                     )
+                
+                magic.timeout = rem_time()
                 pex = magic.extract_pex(
                     gds, expected_top, work, str(config.get("pex_mode", "coupled_c"))
                 )

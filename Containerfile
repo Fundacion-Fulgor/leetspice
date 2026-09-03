@@ -68,8 +68,12 @@ RUN python -m pip install --no-cache-dir '.[eda]' \
     && test -s ../ngspice/osdi/mosvar.osdi \
     && cd /app \
     && mkdir -p /var/lib/leetspice \
-    && chown -R leetspice:leetspice /app /var/lib/leetspice \
-    && chmod -R a-w /opt/IHP-Open-PDK
+    && chown -R root:root /app \
+    && chmod -R 555 /app \
+    && chown -R leetspice:leetspice /var/lib/leetspice \
+    && chmod -R a-w /opt/IHP-Open-PDK \
+    && apt-get purge --yes --auto-remove build-essential autoconf automake binutils git curl m4 \
+    && rm -rf /var/lib/apt/lists/*
 
 USER leetspice
 

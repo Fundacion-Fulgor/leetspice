@@ -11,6 +11,9 @@ services:
       timeout: 5s
       retries: 12
     restart: unless-stopped
+    networks:
+      - default
+      - isolated_worker
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -39,6 +42,8 @@ services:
       retries: 6
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - default
     ports:
       - "${WEB_PORT:-8000}:8000"
 
@@ -61,8 +66,21 @@ services:
       web:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - isolated_worker
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1G
+          pids: 256
     volumes:
       - worker_data:/var/lib/leetspice
+
+networks:
+  default:
+  isolated_worker:
+    internal: true
 
 volumes:
   postgres_data:
