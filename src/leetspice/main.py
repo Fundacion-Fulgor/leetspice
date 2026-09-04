@@ -38,6 +38,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.settings = settings
 
     @application.middleware("http")
+    async def max_body_size_middleware(request: Request, call_next: object) -> Response:
+        if "content-length" in request.headers:
+            try:
+                length = int(request.headers["content-length"])
+                if length > 10 * 1024 * 1024:
+                    return Response("File too large. Maximum size is 10MB.", status_code=413)
+            except ValueError:
+                pass
+        return await call_next(request)  # type: ignore[operator]
+
+    @application.middleware("http")
     async def session_middleware(request: Request, call_next: object) -> Response:
         payload = read_session(request, settings)
         if not payload:
@@ -60,6 +71,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.include_router(router)
     setup_admin(application, db.engine, settings)
+    
+    # Configure SlowAPI
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+    
+    limiter = Limiter(key_func=get_remote_address)
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    application.add_middleware(SlowAPIMiddleware)
+
     return application
 
 

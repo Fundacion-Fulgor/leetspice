@@ -16,6 +16,7 @@ services:
       - isolated_worker
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
 
@@ -51,7 +52,7 @@ services:
     image: localhost/leetspice:local
     command: ["leetspice-worker"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
+      DATABASE_URL: postgresql+psycopg://leetspice_worker:worker_password@db:5432/${POSTGRES_DB:-leetspice}
       SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
       RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
