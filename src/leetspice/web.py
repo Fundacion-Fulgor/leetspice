@@ -496,7 +496,7 @@ from slowapi.util import get_remote_address
 limiter = Limiter(key_func=get_remote_address)
 
 @router.post("/challenges/{slug}/submit", response_class=HTMLResponse)
-@limiter.limit("5/minute")
+@limiter.limit("5 per 5 minute")
 async def submit(
     slug: str,
     request: Request,
