@@ -168,6 +168,7 @@ class SubmissionAdmin(ModelView, model=Submission):
 
 
 
+
 # ---------------------------------------------------------------------------
 # Create Challenge view
 # ---------------------------------------------------------------------------
@@ -183,184 +184,189 @@ class CreateChallengeView(BaseView):
 
     @expose("/create-challenge", methods=["POST"])
     async def post_create_challenge(self, request: Request) -> Response:
+        import json as _json
+        import shutil
+        import zipfile
+        import tempfile
+        from pathlib import Path as _Path
+
         form = await request.form()
-        slug = form.get("slug")
-        title = form.get("title")
-        summary = form.get("summary")
-        description = form.get("description")
-        track = form.get("track")
-        difficulty = form.get("difficulty")
-        curriculum_order = int(form.get("curriculum_order", 0))
-        category = form.get("category", "General")
-        expected_subckt = form.get("expected_subckt")
-        expected_pins = form.get("expected_pins", "")
-        starter_netlist = form.get("starter_netlist", "")
+        slug = (form.get("slug") or "").strip()
+        title = (form.get("title") or "").strip()
+        summary = (form.get("summary") or "").strip()
+        description = (form.get("description") or "").strip()
+        track = form.get("track", "MOS Foundations")
+        difficulty = form.get("difficulty", "introductory")
+        curriculum_order = int(form.get("curriculum_order") or 0)
+        category = (form.get("category") or "").strip() or track
+        expected_subckt = (form.get("expected_subckt") or "").strip()
+        expected_pins_raw = (form.get("expected_pins") or "").strip()
+        starter_netlist = (form.get("starter_netlist") or "").strip()
         judge_backend = form.get("judge_backend", "characterization")
         submission_kind = form.get("submission_kind", "netlist")
         score_unit = form.get("score_unit", "points")
         lower_is_better = form.get("lower_is_better") == "on"
         is_active = form.get("is_active") == "on"
         is_ranked = form.get("is_ranked") == "on"
-        verification_version = int(form.get("verification_version", 1))
+        verification_version = int(form.get("verification_version") or 1)
+        prerequisites_raw = (form.get("prerequisites") or "").strip()
 
-        pin_list = [p.strip() for p in expected_pins.split(",") if p.strip()]
+        judge_zip = form.get("judge_zip")
 
-        # New fields
-        fixture_path = form.get("fixture_path", "").strip() or None
-        judge_def = form.get("judge_definition", "judge/definition.yaml").strip()
-        max_bytes = int(form.get("maximum_bytes", 8388608))
-        sub_extensions_raw = form.get("submission_extensions", "").strip()
-        prerequisites_raw = form.get("prerequisites", "").strip()
+        def _err(msg):
+            form_html = _render_create_challenge_form(error=msg, data=form)
+            return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
 
-        import json as _json
-        judge_cfg = {}
-        if judge_backend == "characterization":
-            judge_cfg = {"definition": judge_def}
-        elif judge_backend == "klayout":
-            ref_netlist = form.get("reference_netlist", "").strip()
-            judge_cfg = {"definition": judge_def, "reference_netlist": ref_netlist, "drc_density": False, "pex_mode": "coupled_c"}
-        sub_exts = [e.strip() for e in sub_extensions_raw.split(",") if e.strip()] if sub_extensions_raw else []
-        sub_cfg = {"maximum_bytes": max_bytes, "extensions": sub_exts}
+        # --- Validations ---
+        if not slug or not title or not summary or not description or not expected_subckt:
+            return _err("Please fill in all required fields (slug, title, summary, description, subcircuit name).")
+
+        import re
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+            return _err("Slug must be lowercase, alphanumeric, separated by hyphens (e.g. basic-current-mirror).")
+
+        if not judge_zip or not hasattr(judge_zip, "read"):
+            return _err("You must upload a ZIP file containing the judge/ folder (definition.yaml + test circuits).")
+
+        pin_list = [p.strip() for p in expected_pins_raw.split(",") if p.strip()]
+        if not pin_list:
+            return _err("At least one pin is required.")
+
         prereqs = [s.strip() for s in prerequisites_raw.split(",") if s.strip()] if prerequisites_raw else []
 
+        # Check slug uniqueness in DB
         with SessionLocal() as session:
             existing = session.scalar(select(Challenge).where(Challenge.slug == slug))
             if existing:
-                form_html = _render_create_challenge_form(error=f"Slug '{slug}' already exists.", data=form)
-                return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+                return _err(f"A challenge with slug '{slug}' already exists.")
 
-            challenge = Challenge(
-                slug=slug,
-                title=title,
-                summary=summary,
-                description=description,
-                track=track,
-                difficulty=difficulty,
-                curriculum_order=curriculum_order,
-                category=category,
-                expected_subckt=expected_subckt,
-                expected_pins=pin_list,
-                starter_netlist=starter_netlist,
-                judge_backend=judge_backend,
-                submission_kind=submission_kind,
-                score_unit=score_unit,
-                lower_is_better=lower_is_better,
-                is_active=is_active,
-                is_ranked=is_ranked,
-                verification_version=verification_version,
-                fixture_path=fixture_path,
-                submission_config=sub_cfg,
-                judge_config=judge_cfg,
-                assets=[],
-                prerequisites=prereqs,
+        # Resolve challenges root directory
+        settings = request.app.state.settings
+        challenges_root = _Path(settings.challenges_path)
+        package_dir = challenges_root / slug
+
+        if package_dir.exists():
+            return _err(f"Directory '{slug}' already exists under challenges/. Pick a different slug.")
+
+        try:
+            package_dir.mkdir(parents=True, exist_ok=False)
+
+            # Extract ZIP
+            zip_bytes = await judge_zip.read()
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                tmp.write(zip_bytes)
+                tmp_path = tmp.name
+
+            try:
+                with zipfile.ZipFile(tmp_path, "r") as zf:
+                    for name in zf.namelist():
+                        if name.startswith("..") or _Path(name).is_absolute():
+                            raise ValueError(f"ZIP contains dangerous path: {name}")
+                    zf.extractall(package_dir)
+            finally:
+                import os
+                os.unlink(tmp_path)
+
+            # Try to find judge/definition.yaml, handle different ZIP structures
+            judge_def_path = "judge/definition.yaml"
+            if not (package_dir / judge_def_path).is_file():
+                top_dirs = [d for d in package_dir.iterdir() if d.is_dir()]
+                if len(top_dirs) == 1 and (top_dirs[0] / "definition.yaml").is_file():
+                    inner = top_dirs[0]
+                    judge_target = package_dir / "judge"
+                    if inner.name != "judge":
+                        inner.rename(judge_target)
+                elif (package_dir / "definition.yaml").is_file():
+                    judge_dir = package_dir / "judge"
+                    judge_dir.mkdir(exist_ok=True)
+                    for item in list(package_dir.iterdir()):
+                        if item.name != "judge":
+                            shutil.move(str(item), str(judge_dir / item.name))
+
+                if not (package_dir / judge_def_path).is_file():
+                    raise ValueError(
+                        "The ZIP must contain a judge/ folder with definition.yaml inside. "
+                        "Expected structure: judge/definition.yaml, judge/tests/functional.cir"
+                    )
+
+            # Write specification.md from the description field
+            spec_path = package_dir / "specification.md"
+            spec_path.write_text(description, encoding="utf-8")
+
+            # Write starter.cir if provided
+            if starter_netlist:
+                starter_path = package_dir / "starter.cir"
+                starter_path.write_text(starter_netlist, encoding="utf-8")
+
+            # Build challenge.json manifest
+            judge_config = {"definition": judge_def_path}
+            manifest = {
+                "schema_version": 2,
+                "slug": slug,
+                "title": title,
+                "summary": summary,
+                "track": track,
+                "difficulty": difficulty,
+                "verification_version": verification_version,
+                "curriculum_order": curriculum_order,
+                "prerequisites": prereqs,
+                "is_ranked": is_ranked,
+                "specification_file": "specification.md",
+                "interface": {
+                    "subckt": expected_subckt,
+                    "pins": pin_list,
+                },
+                "submission": {"kind": submission_kind},
+                "judge_backend": judge_backend,
+                "judge_config": judge_config,
+                "score_unit": score_unit,
+                "lower_is_better": lower_is_better,
+                "is_active": is_active,
+            }
+            if starter_netlist:
+                manifest["starter_file"] = "starter.cir"
+            if category and category != track:
+                manifest["category"] = category
+
+            manifest_path = package_dir / "challenge.json"
+            manifest_path.write_text(
+                _json.dumps(manifest, indent=2, ensure_ascii=False),
+                encoding="utf-8",
             )
-            session.add(challenge)
-            session.commit()
+
+            # Validate using the same logic as seed_challenges
+            from .challenge_catalog import _read_package
+            try:
+                validated_slug, values = _read_package(package_dir)
+            except ValueError as ve:
+                raise ValueError(f"Validation failed: {ve}")
+
+            # Insert into DB
+            with SessionLocal() as session:
+                challenge = Challenge(slug=validated_slug, **values)
+                session.add(challenge)
+                session.commit()
+
+        except Exception as exc:
+            if package_dir.exists():
+                shutil.rmtree(package_dir, ignore_errors=True)
+            return _err(f"Error creating challenge: {exc}")
 
         return RedirectResponse(url="/admin/challenge/list", status_code=302)
-
-
-_PREVIEW_HTML = """
-<!-- Preview Modal -->
-<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content" style="background:#f1f0e9;border:0">
-      <div class="modal-header" style="background:#111815;color:#dbff3d;border:0">
-        <h5 class="modal-title" style="font-weight:800;letter-spacing:-1px"><i class="fa-solid fa-eye"></i> Challenge Preview (Vista del Usuario)</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body p-0" id="previewBody"></div>
-    </div>
-  </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-function showPreview() {
-  var f = document.querySelector('form');
-  function g(k) { var el = f.querySelector('[name="'+k+'"]'); return el ? el.value : ''; }
-  function ch(k) { var el = f.querySelector('[name="'+k+'"]'); return el ? el.checked : false; }
-  function selText(k) { var el = f.querySelector('[name="'+k+'"]'); return el && el.selectedIndex >= 0 ? el.options[el.selectedIndex].text : ''; }
-
-  var title = g('title') || 'Untitled Challenge';
-  var summary = g('summary') || 'No summary provided.';
-  var description = g('description') || '';
-  var track = selText('track');
-  var difficulty = selText('difficulty');
-  var subckt = g('expected_subckt') || 'subcircuit';
-  var pins = g('expected_pins') || '';
-  var pinDisplay = pins ? pins.split(',').map(function(p){ return p.trim(); }).join(' \u00b7 ') : '\u2014';
-  var scoreUnit = selText('score_unit');
-  var judgeBackend = g('judge_backend');
-  var starterNetlist = g('starter_netlist') || '* Your SPICE netlist here';
-  var isRanked = ch('is_ranked');
-  var lowerIsBetter = ch('lower_is_better');
-  var verVersion = g('verification_version') || '1';
-  var fixturePath = g('fixture_path') || g('slug') || '(not set)';
-  var objective = isRanked ? ((lowerIsBetter ? 'MIN' : 'MAX') + ' ' + scoreUnit) : 'GUIDED LAB';
-  var verification = judgeBackend === 'klayout' ? 'Magic DRC \u00b7 Netgen LVS \u00b7 PEX \u00b7 ngspice' : 'Direct ngspice';
-
-  var descHtml = description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-
-  var html = '';
-  html += '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#f1f0e9;color:#111815;padding:0">';
-
-  html += '<div style="padding:40px clamp(20px,5vw,72px) 28px;border-bottom:2px solid #111815;display:flex;justify-content:space-between;align-items:end">';
-  html += '<div><p style="font:500 11px monospace;letter-spacing:2px;text-transform:uppercase;color:#d56a3a;margin:0 0 10px">CH-XX / ACTIVE BENCH</p>';
-  html += '<h1 style="font-size:clamp(36px,5vw,64px);letter-spacing:-.04em;line-height:.95;margin:0">'+title+'</h1></div>';
-  html += '<div style="border-left:1px solid #c7c9bd;padding:12px 0 12px 24px"><span style="font:10px monospace;color:#687069;display:block">OBJECTIVE</span>';
-  html += '<strong style="font:18px monospace">'+objective+'</strong></div></div>';
-
-  html += '<div style="display:grid;grid-template-columns:1.45fr .85fr;gap:24px;padding:24px clamp(20px,5vw,72px) 36px;align-items:start">';
-
-  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:24px">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:20px">Design brief</h2>';
-  html += '<span style="font:10px monospace;color:#687069">VERIFICATION v'+verVersion+'</span></div>';
-  html += '<p style="max-width:70ch;margin:14px 0 20px;font-size:clamp(16px,1.3vw,19px);font-weight:600;line-height:1.55">'+summary+'</p>';
-
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #111815">';
-  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Track</dt><dd style="margin:0">'+track+' \u00b7 '+difficulty+'</dd></div>';
-  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Verification</dt><dd style="margin:0">'+verification+'</dd></div>';
-  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd;border-right:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Subcircuit</dt><dd style="margin:0"><code style="background:#f1f0e9;padding:2px 5px;font-family:monospace">'+subckt+'</code></dd></div>';
-  html += '<div style="padding:14px 16px;border-bottom:1px solid #c7c9bd"><dt style="margin-bottom:6px;color:#687069;font:500 10px monospace;letter-spacing:1px;text-transform:uppercase">Pin order</dt><dd style="margin:0"><code style="background:#f1f0e9;padding:2px 5px;font-family:monospace">'+pinDisplay+'</code></dd></div>';
-  html += '</div>';
-
-  html += '<details style="margin-top:24px;border-top:2px solid #111815;border-bottom:2px solid #111815">';
-  html += '<summary style="display:flex;gap:10px;justify-content:space-between;align-items:center;padding:16px 0;cursor:pointer;list-style:none;font-weight:700"><span>+ Full specification</span><small style="color:#687069;font:10px/1.4 monospace;text-align:right">Requirements, scoring, conditions</small></summary>';
-  html += '<div style="padding:8px 0 28px;font-size:15px;line-height:1.7">'+(descHtml || '<em style="color:#888">No description provided.</em>')+'</div>';
-  html += '</details></div>';
-
-  html += '<div style="background:#faf9f3;border:1px solid #c7c9bd;padding:24px">';
-  html += '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:20px">Netlist input</h2><span style="font:10px monospace;color:#687069">TEXT / SPICE</span></div>';
-  html += '<pre style="width:100%;min-height:250px;padding:18px;background:#111815;color:#dcff62;border:0;font:13px/1.6 monospace;overflow:auto;white-space:pre;margin-top:16px">'+starterNetlist+'</pre>';
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px"><small style="font:11px monospace;color:#687069">Input is submitted exactly as provided.</small>';
-  html += '<button disabled style="border:0;background:#c7c9bd;color:#687069;font:500 11px monospace;text-transform:uppercase;padding:14px 20px;cursor:not-allowed;opacity:.6">Queue verification</button></div>';
-  html += '</div></div>';
-
-  html += '<div style="padding:0 clamp(20px,5vw,72px) 8px"><div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px 20px;font-size:12px;color:#664d03">';
-  html += '<strong><i class="fa-solid fa-info-circle"></i> Admin Info:</strong> fixture_path = <code>'+fixturePath+'</code> &mdash; ';
-  html += 'Ensure <code>/app/challenges/'+fixturePath+'/judge/definition.yaml</code> and testbench files exist before activating.</div></div>';
-  html += '</div>';
-
-  document.getElementById('previewBody').innerHTML = html;
-  new bootstrap.Modal(document.getElementById('previewModal')).show();
-}
-</script>
-"""
 
 
 def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
     data = data or {}
     err_html = f'<div class="alert alert-danger">{escape(error)}</div>' if error else ""
-    
+
     def val(key, default=""):
         return escape(str(data.get(key, default)))
-    
+
     def check(key, default=False):
         if not data:
             return "checked" if default else ""
         return "checked" if data.get(key) else ""
-        
+
     def sel(key, opt, default=False):
         if not data:
             return "selected" if default else ""
@@ -368,7 +374,7 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
 
     return f'''
 {err_html}
-<form method="post" action="#" onsubmit="event.preventDefault(); alert('Formulario deshabilitado por el momento.');">
+<form method="post" enctype="multipart/form-data">
   <div class="row g-4">
     <!-- Basic Info -->
     <div class="col-md-6">
@@ -376,23 +382,23 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
         <div class="card-header bg-dark text-white"><i class="fa-solid fa-align-left"></i> Basic Info</div>
         <div class="card-body">
           <div class="mb-3">
-            <label class="form-label fw-bold">Slug</label>
+            <label class="form-label fw-bold">Slug <span class="text-danger">*</span></label>
             <input type="text" name="slug" class="form-control" required placeholder="e.g. basic-current-mirror" value="{val('slug')}">
-            <div class="form-text">Unique URL identifier. Also used as <code>fixture_path</code> if left blank below.</div>
+            <div class="form-text">Lowercase, hyphens only. Also used as the folder name under <code>challenges/</code>.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label fw-bold">Title</label>
+            <label class="form-label fw-bold">Title <span class="text-danger">*</span></label>
             <input type="text" name="title" class="form-control" required value="{val('title')}">
           </div>
           <div class="mb-3">
-            <label class="form-label fw-bold">Summary</label>
+            <label class="form-label fw-bold">Summary <span class="text-danger">*</span></label>
             <input type="text" name="summary" class="form-control" required value="{val('summary')}">
-            <div class="form-text">One-liner that appears on challenge cards.</div>
+            <div class="form-text">One-liner shown on challenge cards.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label fw-bold">Description (Markdown)</label>
+            <label class="form-label fw-bold">Description (Markdown) <span class="text-danger">*</span></label>
             <textarea name="description" class="form-control" rows="5" required>{val('description')}</textarea>
-            <div class="form-text">Full specification. Supports Markdown formatting.</div>
+            <div class="form-text">Full specification the student sees. Saved as <code>specification.md</code>.</div>
           </div>
         </div>
       </div>
@@ -408,6 +414,8 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
             <select name="track" class="form-select">
               <option value="MOS Foundations" {sel('track', 'MOS Foundations', True)}>MOS Foundations</option>
               <option value="Biasing" {sel('track', 'Biasing')}>Biasing</option>
+              <option value="Gain Stages" {sel('track', 'Gain Stages')}>Gain Stages</option>
+              <option value="Differential" {sel('track', 'Differential')}>Differential</option>
               <option value="Amplifiers" {sel('track', 'Amplifiers')}>Amplifiers</option>
               <option value="Physical Design" {sel('track', 'Physical Design')}>Physical Design</option>
               <option value="Advanced" {sel('track', 'Advanced')}>Advanced</option>
@@ -448,36 +456,52 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
         <div class="card-header bg-dark text-white"><i class="fa-solid fa-microchip"></i> Circuit Interface</div>
         <div class="card-body">
           <div class="mb-3">
-            <label class="form-label fw-bold">Expected Subcircuit Name</label>
+            <label class="form-label fw-bold">Expected Subcircuit Name <span class="text-danger">*</span></label>
             <input type="text" name="expected_subckt" class="form-control" required placeholder="e.g. basic_current_mirror" value="{val('expected_subckt')}">
             <div class="form-text">Exact <code>.subckt</code> name the student must define.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label fw-bold">Expected Pins</label>
-            <input type="text" name="expected_pins" class="form-control" placeholder="iref, out, vss" value="{val('expected_pins')}">
+            <label class="form-label fw-bold">Expected Pins <span class="text-danger">*</span></label>
+            <input type="text" name="expected_pins" class="form-control" required placeholder="iref, out, vdd, vss" value="{val('expected_pins')}">
             <div class="form-text">Comma-separated pin list, in the exact order expected by the testbench.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label fw-bold">Starter Netlist (Optional)</label>
+            <label class="form-label fw-bold">Starter Netlist</label>
             <textarea name="starter_netlist" class="form-control" rows="4" style="font-family:monospace;font-size:12px">{val('starter_netlist')}</textarea>
-            <div class="form-text">Initial code the student sees in the editor.</div>
+            <div class="form-text">Initial code the student sees in the editor. Optional.</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Judging Configuration -->
+    <!-- Judge Files -->
     <div class="col-md-6">
       <div class="card shadow-sm h-100">
-        <div class="card-header bg-dark text-white"><i class="fa-solid fa-gavel"></i> Judging Configuration</div>
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-file-zipper"></i> Judge Files (ZIP Upload)</div>
         <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Judge ZIP File <span class="text-danger">*</span></label>
+            <input type="file" name="judge_zip" class="form-control" accept=".zip" required>
+            <div class="form-text">
+              Upload a <code>.zip</code> containing the judge folder. Expected structure:<br>
+              <code>judge/definition.yaml</code> &mdash; test definitions, measurements, scoring<br>
+              <code>judge/tests/functional.cir</code> &mdash; ngspice testbench template<br>
+              <code>judge/reference.spice</code> &mdash; reference netlist (optional)
+            </div>
+          </div>
+          <div class="alert alert-info" style="font-size:12px">
+            <strong><i class="fa-solid fa-info-circle"></i> Tip:</strong>
+            You can create the ZIP from an existing challenge folder:
+            <code style="display:block;margin-top:6px;background:#e8e8e8;padding:6px;border-radius:4px">
+              cd challenges/existing-challenge &amp;&amp; zip -r judge.zip judge/
+            </code>
+          </div>
           <div class="row">
             <div class="col-6 mb-3">
               <label class="form-label fw-bold">Judge Backend</label>
               <select name="judge_backend" class="form-select">
                 <option value="characterization" {sel('judge_backend', 'characterization', True)}>Characterization</option>
-                <option value="ngspice" {sel('judge_backend', 'ngspice')}>Ngspice</option>
-                <option value="klayout" {sel('judge_backend', 'klayout')}>Klayout</option>
+                <option value="klayout" {sel('judge_backend', 'klayout')}>Klayout (GDS)</option>
               </select>
             </div>
             <div class="col-6 mb-3">
@@ -488,28 +512,6 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
               </select>
             </div>
           </div>
-          <div class="mb-3">
-            <label class="form-label fw-bold">Fixture Path</label>
-            <input type="text" name="fixture_path" class="form-control" placeholder="e.g. basic-current-mirror" value="{val('fixture_path')}">
-            <div class="form-text">Directory name under <code>/app/challenges/</code> containing <code>judge/definition.yaml</code> and testbench files. If blank, defaults to the slug.</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-bold">Judge Definition Path</label>
-            <input type="text" name="judge_definition" class="form-control" value="{val('judge_definition', 'judge/definition.yaml')}">
-            <div class="form-text">Path to <code>definition.yaml</code> inside the fixture directory. Defines tests, measurements, and scoring.</div>
-          </div>
-          <div class="row">
-            <div class="col-6 mb-3">
-              <label class="form-label fw-bold">Max Upload Size (bytes)</label>
-              <input type="number" name="maximum_bytes" class="form-control" value="{val('maximum_bytes', '8388608')}">
-              <div class="form-text">Default: 8 MB</div>
-            </div>
-            <div class="col-6 mb-3">
-              <label class="form-label fw-bold">Allowed Extensions</label>
-              <input type="text" name="submission_extensions" class="form-control" placeholder="e.g. .gds" value="{val('submission_extensions')}">
-              <div class="form-text">Comma-separated. Leave blank for netlist.</div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -517,7 +519,7 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
     <!-- Scoring & Options -->
     <div class="col-12">
       <div class="card shadow-sm">
-        <div class="card-header bg-dark text-white"><i class="fa-solid fa-sliders"></i> Scoring & Options</div>
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-sliders"></i> Scoring &amp; Options</div>
         <div class="card-body">
           <div class="row">
             <div class="col-md-3 mb-3">
@@ -553,14 +555,12 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
       </div>
     </div>
   </div>
-  
-  <div class="mt-4 text-center d-flex justify-content-center gap-3">
-    <button type="button" class="btn btn-outline-primary btn-lg px-4" onclick="alert('Previsualización deshabilitada por el momento.');"><i class="fa-solid fa-eye"></i> Preview</button>
+
+  <div class="mt-4 text-center">
     <button type="submit" class="btn btn-success btn-lg px-5"><i class="fa-solid fa-check"></i> Create Challenge</button>
   </div>
 </form>
-''' + _PREVIEW_HTML
-
+'''
 
 
 # ---------------------------------------------------------------------------
