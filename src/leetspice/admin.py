@@ -206,7 +206,6 @@ class CreateChallengeView(BaseView):
         submission_kind = form.get("submission_kind", "netlist")
         score_unit = form.get("score_unit", "points")
         lower_is_better = form.get("lower_is_better") == "on"
-        is_active = form.get("is_active") == "on"
         is_ranked = form.get("is_ranked") == "on"
         verification_version = int(form.get("verification_version") or 1)
         prerequisites_raw = (form.get("prerequisites") or "").strip()
@@ -217,7 +216,6 @@ class CreateChallengeView(BaseView):
             form_html = _render_create_challenge_form(error=msg, data=form)
             return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
 
-        # --- Validations ---
         if not slug or not title or not summary or not description or not expected_subckt:
             return _err("Please fill in all required fields (slug, title, summary, description, subcircuit name).")
 
@@ -234,14 +232,13 @@ class CreateChallengeView(BaseView):
 
         prereqs = [s.strip() for s in prerequisites_raw.split(",") if s.strip()] if prerequisites_raw else []
 
-        # Check slug uniqueness in DB
         with SessionLocal() as session:
             existing = session.scalar(select(Challenge).where(Challenge.slug == slug))
             if existing:
                 return _err(f"A challenge with slug '{slug}' already exists.")
 
-        # Resolve challenges root directory
-        settings = request.app.state.settings
+        from .config import get_settings as _get_settings
+        settings = _get_settings()
         challenges_root = _Path(settings.challenges_path)
         package_dir = challenges_root / slug
 
@@ -251,7 +248,6 @@ class CreateChallengeView(BaseView):
         try:
             package_dir.mkdir(parents=True, exist_ok=False)
 
-            # Extract ZIP
             zip_bytes = await judge_zip.read()
             with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
                 tmp.write(zip_bytes)
@@ -267,7 +263,6 @@ class CreateChallengeView(BaseView):
                 import os
                 os.unlink(tmp_path)
 
-            # Try to find judge/definition.yaml, handle different ZIP structures
             judge_def_path = "judge/definition.yaml"
             if not (package_dir / judge_def_path).is_file():
                 top_dirs = [d for d in package_dir.iterdir() if d.is_dir()]
@@ -289,16 +284,13 @@ class CreateChallengeView(BaseView):
                         "Expected structure: judge/definition.yaml, judge/tests/functional.cir"
                     )
 
-            # Write specification.md from the description field
             spec_path = package_dir / "specification.md"
             spec_path.write_text(description, encoding="utf-8")
 
-            # Write starter.cir if provided
             if starter_netlist:
                 starter_path = package_dir / "starter.cir"
                 starter_path.write_text(starter_netlist, encoding="utf-8")
 
-            # Build challenge.json manifest
             judge_config = {"definition": judge_def_path}
             manifest = {
                 "schema_version": 2,
@@ -321,7 +313,7 @@ class CreateChallengeView(BaseView):
                 "judge_config": judge_config,
                 "score_unit": score_unit,
                 "lower_is_better": lower_is_better,
-                "is_active": is_active,
+                "is_active": False,
             }
             if starter_netlist:
                 manifest["starter_file"] = "starter.cir"
@@ -334,14 +326,12 @@ class CreateChallengeView(BaseView):
                 encoding="utf-8",
             )
 
-            # Validate using the same logic as seed_challenges
             from .challenge_catalog import _read_package
             try:
                 validated_slug, values = _read_package(package_dir)
             except ValueError as ve:
                 raise ValueError(f"Validation failed: {ve}")
 
-            # Insert into DB
             with SessionLocal() as session:
                 challenge = Challenge(slug=validated_slug, **values)
                 session.add(challenge)
@@ -352,7 +342,9 @@ class CreateChallengeView(BaseView):
                 shutil.rmtree(package_dir, ignore_errors=True)
             return _err(f"Error creating challenge: {exc}")
 
-        return RedirectResponse(url="/admin/challenge/list", status_code=302)
+        return RedirectResponse(url=f"/challenges/{slug}", status_code=302)
+
+
 
 
 def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
@@ -540,10 +532,6 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check('lower_is_better')}>
                 <label class="form-check-label" for="checkLower">Lower score is better</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check('is_active', True)}>
-                <label class="form-check-label" for="checkActive">Active</label>
               </div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>

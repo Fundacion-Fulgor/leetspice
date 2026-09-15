@@ -70,8 +70,6 @@ RUN python -m pip install --no-cache-dir '.[eda]' \
     && mkdir -p /var/lib/leetspice \
     && chown -R root:root /app \
     && chmod -R 555 /app \
-    && chown -R leetspice:leetspice /app/challenges \
-    && chmod -R 755 /app/challenges \
     && chown -R leetspice:leetspice /var/lib/leetspice \
     && chmod -R a-w /opt/IHP-Open-PDK \
     && apt-get purge --yes --auto-remove build-essential autoconf automake binutils git curl m4 \

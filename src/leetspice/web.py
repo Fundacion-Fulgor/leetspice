@@ -414,9 +414,17 @@ def logout(request: Request, csrf_token: Annotated[str, Form()]) -> RedirectResp
 def challenge_detail(
     slug: str, request: Request, db: Annotated[Session, Depends(get_session)]
 ) -> HTMLResponse:
-    challenge = db.scalar(
-        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
-    )
+    user = _current_user(request, db)
+    is_admin = user is not None and user.is_admin
+
+    # Fetch challenge. Admins can see inactive ones.
+    if is_admin:
+        challenge = db.scalar(select(Challenge).where(Challenge.slug == slug))
+    else:
+        challenge = db.scalar(
+            select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+        )
+
     if challenge is None:
         replacement = next(
             (
@@ -433,11 +441,12 @@ def challenge_detail(
                 f"/challenges/{replacement.slug}", status_code=status.HTTP_301_MOVED_PERMANENTLY
             )
         raise HTTPException(status_code=404)
-    user = _current_user(request, db)
+
     completed = _completed_slugs(db, user)
     prereqs = challenge.prerequisites or []
     prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
     missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
+
     return templates.TemplateResponse(
         request,
         "challenge.html",
@@ -449,7 +458,7 @@ def challenge_detail(
             leaders=_leaderboard(db, challenge),
             prerequisites_met=prerequisites_met,
             missing_prerequisites=missing,
-
+            is_draft=not challenge.is_active,
         ),
     )
 

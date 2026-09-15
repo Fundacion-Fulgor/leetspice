@@ -5,6 +5,13 @@
   <div><p class="eyebrow">CH-{{ "%02d"|format(challenge.id) }} / ACTIVE BENCH</p><h1>{{ challenge.title }}</h1></div>
   <div class="metric"><span>OBJECTIVE</span><strong>{% if challenge.is_ranked %}{% if challenge.lower_is_better %}MIN{% else %}MAX{% endif %} {{ challenge.score_unit }}{% else %}GUIDED LAB{% endif %}</strong></div>
 </section>
+{% if is_draft and current_user.is_admin %}
+<div class="alert alert-warning" style="background-color: #fff3cd; color: #856404; padding: 1rem; margin-bottom: 1rem; border: 1px solid #ffeeba; border-radius: 0.25rem;">
+  <strong><i class="fa-solid fa-lock"></i> Draft Challenge (Admin Only)</strong><br>
+  This challenge is currently inactive and hidden from students. You can use this page to test the simulation. 
+  Once you verify everything works, you can publish it from the <a href="/admin/challenge/edit?id={{ challenge.id }}" style="font-weight: bold; text-decoration: underline;">admin panel</a>.
+</div>
+{% endif %}
 {% if not prerequisites_met and current_user %}
 <div class="prereq-banner">
   <strong>Prerequisites required</strong>

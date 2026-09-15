@@ -47,6 +47,8 @@ services:
       - default
     ports:
       - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ./challenges:/app/challenges
 
   worker:
     image: localhost/leetspice:local
@@ -77,6 +79,7 @@ services:
           pids: 256
     volumes:
       - worker_data:/var/lib/leetspice
+      - ./challenges:/app/challenges
 
 networks:
   default:
