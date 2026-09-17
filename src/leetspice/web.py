@@ -446,6 +446,8 @@ def challenge_detail(
     prereqs = challenge.prerequisites or []
     prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
     missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
+    
+    is_preview = request.query_params.get("preview") == "1"
 
     return templates.TemplateResponse(
         request,
@@ -459,6 +461,7 @@ def challenge_detail(
             prerequisites_met=prerequisites_met,
             missing_prerequisites=missing,
             is_draft=not challenge.is_active,
+            is_preview=is_preview,
         ),
     )
 

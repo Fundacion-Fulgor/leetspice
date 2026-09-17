@@ -5,7 +5,12 @@
   <div><p class="eyebrow">CH-{{ "%02d"|format(challenge.id) }} / ACTIVE BENCH</p><h1>{{ challenge.title }}</h1></div>
   <div class="metric"><span>OBJECTIVE</span><strong>{% if challenge.is_ranked %}{% if challenge.lower_is_better %}MIN{% else %}MAX{% endif %} {{ challenge.score_unit }}{% else %}GUIDED LAB{% endif %}</strong></div>
 </section>
-{% if is_draft and current_user.is_admin %}
+{% if is_preview and current_user.is_admin %}
+<div class="alert alert-info" style="background-color: #d1ecf1; color: #0c5460; padding: 1rem; margin-bottom: 1rem; border: 1px solid #bee5eb; border-radius: 0.25rem;">
+  <strong><i class="fa-solid fa-eye"></i> Preview Mode (Admin Only)</strong><br>
+  You are previewing a new challenge. You can test the simulation below. If everything is correct, click <b>Confirm & Save to DB</b> at the bottom of the page.
+</div>
+{% elif is_draft and current_user.is_admin %}
 <div class="alert alert-warning" style="background-color: #fff3cd; color: #856404; padding: 1rem; margin-bottom: 1rem; border: 1px solid #ffeeba; border-radius: 0.25rem;">
   <strong><i class="fa-solid fa-lock"></i> Draft Challenge (Admin Only)</strong><br>
   This challenge is currently inactive and hidden from students. You can use this page to test the simulation. 
@@ -69,4 +74,21 @@
     {% endif %}
   </section>
 </div>
+
+{% if is_preview and current_user.is_admin %}
+<div style="margin-top: 2rem; padding: 2rem; background: #f8f9fa; text-align: center; border: 2px solid #343a40; border-radius: 8px;">
+  <h3 style="margin-top: 0;">Ready to publish?</h3>
+  <p style="color: #6c757d; margin-bottom: 1.5rem;">If the simulation above worked correctly, you can confirm and save this challenge.</p>
+  <form method="post" style="display:inline-block;">
+     <input type="hidden" name="slug" value="{{ challenge.slug }}">
+     <button type="submit" formaction="/admin/create-challenge-cancel" style="background: #e9ecef; color: #495057; padding: 1rem 2rem; font-size: 1.1rem; cursor: pointer; border: 1px solid #ced4da; margin-right: 1rem; border-radius: 4px; font-weight: bold;">
+       <i class="fa-solid fa-arrow-left"></i> Back to Edit
+     </button>
+     <button type="submit" formaction="/admin/create-challenge-confirm" style="background: #dbff3d; color: #111815; padding: 1rem 2rem; font-size: 1.1rem; cursor: pointer; border: 1px solid #111815; border-radius: 4px; font-weight: bold;">
+       <i class="fa-solid fa-check"></i> Confirm &amp; Save to DB
+     </button>
+  </form>
+</div>
+{% endif %}
+
 {% endblock %}

@@ -206,6 +206,7 @@ class CreateChallengeView(BaseView):
         submission_kind = form.get("submission_kind", "netlist")
         score_unit = form.get("score_unit", "points")
         lower_is_better = form.get("lower_is_better") == "on"
+        is_active = form.get("is_active") == "on"
         is_ranked = form.get("is_ranked") == "on"
         verification_version = int(form.get("verification_version") or 1)
         prerequisites_raw = (form.get("prerequisites") or "").strip()
@@ -314,6 +315,7 @@ class CreateChallengeView(BaseView):
                 "score_unit": score_unit,
                 "lower_is_better": lower_is_better,
                 "is_active": False,
+                "intended_is_active": is_active,
             }
             if starter_netlist:
                 manifest["starter_file"] = "starter.cir"
@@ -342,7 +344,95 @@ class CreateChallengeView(BaseView):
                 shutil.rmtree(package_dir, ignore_errors=True)
             return _err(f"Error creating challenge: {exc}")
 
-        return RedirectResponse(url=f"/challenges/{slug}", status_code=302)
+        return RedirectResponse(url=f"/challenges/{slug}?preview=1", status_code=302)
+
+    @expose("/create-challenge-confirm", methods=["POST"])
+    async def confirm_create_challenge(self, request: Request) -> Response:
+        form = await request.form()
+        slug = (form.get("slug") or "").strip()
+        if not slug:
+            return RedirectResponse("/admin/challenge/list", status_code=302)
+            
+        with SessionLocal() as session:
+            challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if challenge:
+                from .config import get_settings as _get_settings
+                from pathlib import Path as _Path
+                import json as _json
+                challenges_root = _Path(_get_settings().challenges_path)
+                manifest_path = challenges_root / slug / "challenge.json"
+                if manifest_path.exists():
+                    manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+                    challenge.is_active = manifest.get("intended_is_active", True)
+                    if "intended_is_active" in manifest:
+                        del manifest["intended_is_active"]
+                    manifest["is_active"] = challenge.is_active
+                    manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+                session.commit()
+        return RedirectResponse("/admin/challenge/list", status_code=302)
+
+    @expose("/create-challenge-cancel", methods=["POST"])
+    async def cancel_create_challenge(self, request: Request) -> Response:
+        form = await request.form()
+        slug = (form.get("slug") or "").strip()
+        if not slug:
+            return RedirectResponse("/admin/create-challenge", status_code=302)
+            
+        data = {}
+        with SessionLocal() as session:
+            challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if challenge:
+                data = {
+                    "slug": challenge.slug,
+                    "title": challenge.title,
+                    "summary": challenge.summary,
+                    "track": challenge.track,
+                    "difficulty": challenge.difficulty,
+                    "curriculum_order": challenge.curriculum_order,
+                    "category": challenge.category,
+                    "score_unit": challenge.score_unit,
+                    "lower_is_better": "on" if challenge.lower_is_better else "",
+                    "is_ranked": "on" if challenge.is_ranked else "",
+                    "verification_version": challenge.verification_version,
+                    "expected_subckt": challenge.interface.get("subckt", ""),
+                    "expected_pins": ", ".join(challenge.interface.get("pins", [])),
+                    "judge_backend": challenge.judge_backend,
+                    "submission_kind": challenge.submission.get("kind", "netlist"),
+                    "prerequisites": ", ".join(challenge.prerequisites or []),
+                }
+                from .config import get_settings as _get_settings
+                from pathlib import Path as _Path
+                import json as _json
+                import shutil
+                
+                challenges_root = _Path(_get_settings().challenges_path)
+                package_dir = challenges_root / slug
+                
+                if package_dir.exists():
+                    try:
+                        manifest = _json.loads((package_dir / "challenge.json").read_text(encoding="utf-8"))
+                        data["is_active"] = "on" if manifest.get("intended_is_active", False) else ""
+                    except:
+                        pass
+                    try:
+                        data["description"] = (package_dir / "specification.md").read_text(encoding="utf-8")
+                    except:
+                        pass
+                    try:
+                        data["starter_netlist"] = (package_dir / "starter.cir").read_text(encoding="utf-8")
+                    except:
+                        pass
+                        
+                session.delete(challenge)
+                session.commit()
+                if package_dir.exists():
+                    shutil.rmtree(package_dir, ignore_errors=True)
+                    
+        form_html = _render_create_challenge_form(
+            error="Draft discarded. You can continue editing. Note: You must select the ZIP file again.", 
+            data=data
+        )
+        return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
 
 
 
@@ -532,6 +622,10 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check('lower_is_better')}>
                 <label class="form-check-label" for="checkLower">Lower score is better</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check('is_active', True)}>
+                <label class="form-check-label" for="checkActive">Active</label>
               </div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>
