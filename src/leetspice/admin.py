@@ -394,10 +394,10 @@ class CreateChallengeView(BaseView):
                     "lower_is_better": "on" if challenge.lower_is_better else "",
                     "is_ranked": "on" if challenge.is_ranked else "",
                     "verification_version": challenge.verification_version,
-                    "expected_subckt": challenge.interface.get("subckt", ""),
-                    "expected_pins": ", ".join(challenge.interface.get("pins", [])),
+                    "expected_subckt": challenge.expected_subckt,
+                    "expected_pins": ", ".join(challenge.expected_pins or []),
                     "judge_backend": challenge.judge_backend,
-                    "submission_kind": challenge.submission.get("kind", "netlist"),
+                    "submission_kind": challenge.submission_kind,
                     "prerequisites": ", ".join(challenge.prerequisites or []),
                 }
                 from .config import get_settings as _get_settings

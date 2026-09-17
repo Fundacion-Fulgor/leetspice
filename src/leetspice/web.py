@@ -521,9 +521,13 @@ async def submit(
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-    challenge = db.scalar(
-        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
-    )
+    is_admin = user is not None and user.is_admin
+    if is_admin:
+        challenge = db.scalar(select(Challenge).where(Challenge.slug == slug))
+    else:
+        challenge = db.scalar(
+            select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+        )
     if challenge is None:
         raise HTTPException(status_code=404)
     completed = _completed_slugs(db, user)
