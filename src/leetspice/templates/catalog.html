@@ -8,7 +8,19 @@
   </div>
   <p class="hero-copy">Learn circuit design, submit real SPICE netlists, and climb the rankings by engineering a better tradeoff.<span class="hero-support">The highest-ranking students automatically earn Fundación Fulgor scholarships.</span></p>
 </section>
-<section class="section-head"><h2>Open benches</h2><span>{{ challenges_count }} ACTIVE</span></section>
+<section class="section-head"><h2>Open benches</h2><span>{{ challenges_count }} {% if show_all %}TOTAL{% else %}ACTIVE{% endif %}</span></section>
+
+{% if current_user and current_user.is_admin %}
+<div style="display:flex;align-items:center;gap:10px;margin:-0.5rem 0 1.5rem;padding:0.75rem 1rem;background:#1e2422;border:1px solid #2e3532;border-radius:6px;">
+  <span style="font:500 12px/1 monospace;letter-spacing:1px;text-transform:uppercase;color:#a0a8a4;">Active only</span>
+  <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;">
+    <input type="checkbox" id="adminToggle" {% if show_all %}checked{% endif %} style="opacity:0;width:0;height:0;" onchange="window.location.href=this.checked?'/?show_all=1':'/'">
+    <span style="position:absolute;inset:0;background:{% if show_all %}#dbff3d{% else %}#555{% endif %};border-radius:24px;transition:.3s;"></span>
+    <span style="position:absolute;top:3px;left:{% if show_all %}23px{% else %}3px{% endif %};width:18px;height:18px;background:#fff;border-radius:50%;transition:.3s;"></span>
+  </label>
+  <span style="font:500 12px/1 monospace;letter-spacing:1px;text-transform:uppercase;color:{% if show_all %}#dbff3d{% else %}#a0a8a4{% endif %};">Show all</span>
+</div>
+{% endif %}
 
 {% for track, track_challenges in tracks.items() %}
 <div class="track-section">
@@ -16,7 +28,7 @@
   <div class="challenge-grid">
     {% for challenge in track_challenges %}
     {% set status = progress.get(challenge.slug, 'not_started') if progress else 'not_started' %}
-    <article class="challenge-card{% if status == 'locked' %} locked{% endif %}">
+    <article class="challenge-card{% if status == 'locked' %} locked{% endif %}{% if not challenge.is_active %} draft{% endif %}"{% if not challenge.is_active %} style="border:2px dashed #ffc107;opacity:0.85;"{% endif %}>
       <div class="card-lock"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>LOCKED</div>
       <div class="card-index">CH-{{ "%02d"|format(challenge.id) }}
         {% if current_user %}
@@ -29,6 +41,7 @@
         {% endif %}
         {% endif %}
       </div>
+      {% if not challenge.is_active %}<span style="display:inline-block;background:#ffc107;color:#111;font:700 10px/1 monospace;padding:3px 8px;border-radius:3px;letter-spacing:1px;margin-bottom:4px;">DRAFT</span>{% endif %}
       <h3><a href="/challenges/{{ challenge.slug }}"{% if status == 'locked' %} tabindex="-1"{% endif %}>{{ challenge.title }}</a></h3>
       <p>{{ challenge.summary }}</p>
       <div class="card-meta">

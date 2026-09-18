@@ -146,12 +146,15 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
 
 @router.get("/", response_class=HTMLResponse)
 def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
-    challenges = db.scalars(
-        select(Challenge)
-        .where(Challenge.is_active.is_(True))
-        .order_by(Challenge.curriculum_order, Challenge.id)
-    ).all()
     user = _current_user(request, db)
+    is_admin = user is not None and user.is_admin
+    show_all = is_admin and request.query_params.get("show_all") == "1"
+
+    query = select(Challenge).order_by(Challenge.curriculum_order, Challenge.id)
+    if not show_all:
+        query = query.where(Challenge.is_active.is_(True))
+    challenges = db.scalars(query).all()
+
     progress = _challenge_progress(db, user, challenges)
     # Group challenges by track
     tracks: dict[str, list[Challenge]] = {}
@@ -160,7 +163,13 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
     return templates.TemplateResponse(
         request,
         "catalog.html",
-        _context(request, db, tracks=tracks, challenges_count=len(challenges), progress=progress),
+        _context(
+            request, db,
+            tracks=tracks,
+            challenges_count=len(challenges),
+            progress=progress,
+            show_all=show_all,
+        ),
     )
 
 
