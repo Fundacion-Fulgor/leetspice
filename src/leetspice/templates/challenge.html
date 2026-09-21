@@ -59,7 +59,38 @@
     <form method="post" action="/challenges/{{ challenge.slug }}/submit"{% if challenge.submission_kind == 'gds' %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% if challenge.submission_kind == 'gds' %}
-      <label class="file-drop"><span>GDSII STREAM FILE</span><input type="file" name="layout" accept=".gds" required><strong>Select .gds layout</strong><small>Maximum {{ challenge.submission_config.maximum_bytes // 1048576 }} MiB. Raw GDSII only; archives are not accepted.</small></label>
+      <label class="file-drop" id="gds-dropzone" style="transition: all 0.2s;">
+        <span>GDSII STREAM FILE</span>
+        <input type="file" name="layout" accept=".gds" required id="gds-input" onchange="
+          var emptyState = document.getElementById('gds-state-empty');
+          var selectedState = document.getElementById('gds-state-selected');
+          var filename = document.getElementById('gds-filename');
+          var dropzone = document.getElementById('gds-dropzone');
+          
+          if(this.files && this.files.length > 0) {
+            emptyState.style.display = 'none';
+            selectedState.style.display = 'block';
+            filename.textContent = this.files[0].name;
+            dropzone.style.borderColor = '#dbff3d';
+            dropzone.style.backgroundColor = '#1e2422';
+          } else {
+            emptyState.style.display = 'block';
+            selectedState.style.display = 'none';
+            filename.textContent = '';
+            dropzone.style.borderColor = '';
+            dropzone.style.backgroundColor = '';
+          }
+        ">
+        <div id="gds-state-empty">
+          <strong>Select .gds layout</strong>
+          <small>Maximum {{ challenge.submission_config.maximum_bytes // 1048576 }} MiB. Raw GDSII only; archives are not accepted.</small>
+        </div>
+        <div id="gds-state-selected" style="display: none; text-align: center;">
+          <strong style="color: #dbff3d; display: block; margin-bottom: 0.5rem;">File ready to verify</strong>
+          <code id="gds-filename" style="display: inline-block; background: #000; color: #fff; padding: 0.25rem 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.9em;"></code>
+          <small style="display: block; opacity: 0.8; text-decoration: underline;">Click here to change file</small>
+        </div>
+      </label>
       {% else %}
       <textarea name="netlist" spellcheck="false" aria-label="SPICE netlist" required>{{ submitted_netlist|default(challenge.starter_netlist, true) }}</textarea>
       {% endif %}
