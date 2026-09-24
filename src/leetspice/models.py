@@ -56,7 +56,9 @@ class Challenge(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    submissions: Mapped[list["Submission"]] = relationship(back_populates="challenge")
+    submissions: Mapped[list["Submission"]] = relationship(
+        back_populates="challenge", cascade="all, delete-orphan"
+    )
 
 
 class Submission(Base):
