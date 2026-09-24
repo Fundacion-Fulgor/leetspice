@@ -292,6 +292,38 @@ class CreateChallengeView(BaseView):
                 starter_path = package_dir / "starter.cir"
                 starter_path.write_text(starter_netlist, encoding="utf-8")
 
+            # Process optional design files (assets for student download)
+            design_files_assets = []
+            design_files_raw = form.getlist("design_files")
+            for df in design_files_raw:
+                if not hasattr(df, "read") or not df.filename:
+                    continue
+                fname = _Path(df.filename).name
+                if not fname:
+                    continue
+                df_bytes = await df.read()
+                if len(df_bytes) == 0:
+                    continue
+                dest = package_dir / fname
+                dest.write_bytes(df_bytes)
+                ext = _Path(fname).suffix.lower()
+                ext_labels = {
+                    ".sch": "Xschem schematic",
+                    ".sym": "Xschem symbol",
+                    ".gds": "GDSII layout",
+                    ".spice": "SPICE netlist",
+                    ".cir": "SPICE netlist",
+                    ".lib": "SPICE library",
+                }
+                label = f"{ext_labels.get(ext, 'Design file')} ({ext})"
+                asset_id = fname.replace(".", "_").replace(" ", "_").lower()
+                design_files_assets.append({
+                    "id": asset_id,
+                    "label": label,
+                    "path": fname,
+                    "download_name": fname,
+                })
+
             judge_config = {"definition": judge_def_path}
             manifest = {
                 "schema_version": 2,
@@ -316,6 +348,7 @@ class CreateChallengeView(BaseView):
                 "lower_is_better": lower_is_better,
                 "is_active": False,
                 "intended_is_active": is_active,
+                "assets": design_files_assets,
             }
             if starter_netlist:
                 manifest["starter_file"] = "starter.cir"
@@ -456,7 +489,7 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
 
     return f'''
 {err_html}
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" action="/admin/create-challenge">
   <div class="row g-4">
     <!-- Basic Info -->
     <div class="col-md-6">
@@ -631,6 +664,24 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
                 <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>
                 <label class="form-check-label" for="checkRanked">Ranked</label>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+    <!-- Design Files (optional) -->
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-download"></i> Design Files (Optional)</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Downloadable files for students</label>
+            <input type="file" name="design_files" class="form-control" multiple accept=".sch,.sym,.gds,.spice,.cir,.lib">
+            <div class="form-text">
+              Upload <code>.sch</code>, <code>.sym</code>, <code>.gds</code>, or other design files that students can download.
+              These appear as "DESIGN FILES" on the challenge page. Optional &mdash; leave empty if not needed.
             </div>
           </div>
         </div>
