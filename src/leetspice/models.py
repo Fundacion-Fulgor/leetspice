@@ -65,6 +65,8 @@ class Submission(Base):
     __tablename__ = "submissions"
     __table_args__ = (
         Index("ix_submissions_challenge_status_score", "challenge_id", "status", "score"),
+        Index("ix_submissions_user_created", "user_id", "created_at"),
+        Index("ix_submissions_user_status", "user_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

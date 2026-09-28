@@ -52,7 +52,7 @@ def global_leaderboard(session: Session) -> list[GlobalLeader]:
             Submission.status == "accepted",
             Submission.score.is_not(None),
         )
-        .options(joinedload(Submission.user))
+        .options(joinedload(Submission.user), joinedload(Submission.challenge))
     ).all()
 
     best: dict[tuple[int, int], Submission] = {}

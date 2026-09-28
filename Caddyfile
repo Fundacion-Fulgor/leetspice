@@ -1,9 +1,13 @@
 {$DOMAIN:localhost} {
+	# Compression for text, html, css, json
+	encode gzip zstd
+
+	# Cache static assets for fast delivery and low backend load
+	@static path /static/*
+	header @static Cache-Control "public, max-age=86400, stale-while-revalidate=604800"
+
 	# Reverse proxy to the web application
 	reverse_proxy web:8000
-
-	# Compression
-	encode gzip zstd
 
 	# Security headers
 	header {

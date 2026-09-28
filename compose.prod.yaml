@@ -31,12 +31,15 @@ services:
       - |
         # Seed challenges from image into the shared volume (only new ones)
         cp -rn /app/challenges-seed/* /app/challenges/ 2>/dev/null || true
-        # Run migrations then start the app
-        alembic upgrade head && exec python -m uvicorn leetspice.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
+        # Run migrations then start the app with multiple workers for concurrency
+        alembic upgrade head && exec python -m uvicorn leetspice.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4} --proxy-headers --forwarded-allow-ips='*'
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       SECRET_KEY: ${SECRET_KEY}
       SECURE_COOKIES: "true"
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
       RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       PDK_ROOT: /opt/IHP-Open-PDK

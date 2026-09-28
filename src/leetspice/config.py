@@ -16,6 +16,17 @@ class Settings(BaseSettings):
     seed_demo: bool = True
     challenges_path: str = "challenges"
 
+    # Database connection pool tuning for production scalability
+    db_pool_size: int = 20
+    db_max_overflow: int = 10
+    db_pool_recycle: int = 1800
+    db_pool_timeout: int = 30
+
+    # Rate limiting configuration (per IP)
+    rate_limit_default: str = "120/minute"
+    rate_limit_auth: str = "10/minute"
+    rate_limit_submission: str = "20/minute"
+
 
 @lru_cache
 def get_settings() -> Settings:

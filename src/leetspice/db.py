@@ -15,11 +15,17 @@ class Base(DeclarativeBase):
 
 
 def _make_engine(url: str) -> Engine:
+    settings = get_settings()
     kwargs: dict[str, object] = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
         if url in {"sqlite://", "sqlite:///:memory:"}:
             kwargs["poolclass"] = StaticPool
+    else:
+        kwargs["pool_size"] = settings.db_pool_size
+        kwargs["max_overflow"] = settings.db_max_overflow
+        kwargs["pool_recycle"] = settings.db_pool_recycle
+        kwargs["pool_timeout"] = settings.db_pool_timeout
     return create_engine(url, **kwargs)
 
 

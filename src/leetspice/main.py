@@ -73,20 +73,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     setup_admin(application, db.engine, settings)
     
     # Configure SlowAPI rate limiting
-    from slowapi import Limiter
-    from slowapi.util import get_remote_address
     from slowapi.errors import RateLimitExceeded
     from slowapi.middleware import SlowAPIMiddleware
     from fastapi.responses import HTMLResponse
     from fastapi.templating import Jinja2Templates
     import pathlib
+    from .limiter import limiter
 
     _templates = Jinja2Templates(directory=str(pathlib.Path(__file__).parent / "templates"))
-
-    limiter = Limiter(
-        key_func=get_remote_address,
-        default_limits=["30/minute"],
-    )
     application.state.limiter = limiter
 
     async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> HTMLResponse:

@@ -26,8 +26,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, new_session, require_csrf, verify_password
+from .config import get_settings
 from .db import get_session
+from .judge.validator import validate_netlist
 from .leaderboards import global_leaderboard
+from .limiter import limiter
 from .models import Challenge, Submission, User
 
 router = APIRouter()
@@ -114,14 +117,6 @@ def _context(request: Request, db: Session, **values: object) -> dict[str, objec
 def _validate_netlist(netlist: str, challenge: Challenge) -> None:
     if not netlist:
         raise ValueError("Netlist cannot be empty")
-    try:
-        from leetspice.judge.validation import validate_netlist
-    except ImportError:
-        try:
-            from leetspice.judge.validator import validate_netlist
-        except ImportError:
-            # Web development remains usable before an optional judge package is installed.
-            return
     validate_netlist(netlist, challenge.expected_subckt, challenge.expected_pins)
 
 
@@ -352,6 +347,7 @@ def profile_password(
 
 
 @router.post("/register", response_class=HTMLResponse)
+@limiter.limit(get_settings().rate_limit_auth)
 def register(
     request: Request,
     db: Annotated[Session, Depends(get_session)],
@@ -392,6 +388,7 @@ def login_form(request: Request, db: Annotated[Session, Depends(get_session)]) -
 
 
 @router.post("/login", response_class=HTMLResponse)
+@limiter.limit(get_settings().rate_limit_auth)
 def login(
     request: Request,
     db: Annotated[Session, Depends(get_session)],
@@ -511,13 +508,8 @@ def challenge_asset(
     )
 
 
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-limiter = Limiter(key_func=get_remote_address)
-
 @router.post("/challenges/{slug}/submit", response_class=HTMLResponse)
-@limiter.limit("5 per 5 minute")
+@limiter.limit(get_settings().rate_limit_submission)
 async def submit(
     slug: str,
     request: Request,
@@ -718,6 +710,7 @@ def submission_detail(
 
 
 @router.get("/submissions/{submission_id}/status", response_class=HTMLResponse)
+@limiter.exempt
 def submission_status(
     submission_id: int, request: Request, db: Annotated[Session, Depends(get_session)]
 ) -> HTMLResponse:
