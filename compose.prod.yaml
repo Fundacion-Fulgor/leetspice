@@ -5,6 +5,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
@@ -16,18 +17,26 @@ services:
       - isolated_worker
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    # Ports are intentionally NOT exposed to the host for security.
+      - ./init.prod.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    # DB port is NOT exposed to the host for security.
 
   web:
     build:
       context: .
       dockerfile: Containerfile
     image: leetspice:prod
-    command: ["sh", "-c", "alembic upgrade head && exec python -m uvicorn leetspice.main:app --host 0.0.0.0 --port 8000"]
+    command:
+      - sh
+      - -c
+      - |
+        # Seed challenges from image into the shared volume (only new ones)
+        cp -rn /app/challenges-seed/* /app/challenges/ 2>/dev/null || true
+        # Run migrations then start the app
+        alembic upgrade head && exec python -m uvicorn leetspice.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       SECRET_KEY: ${SECRET_KEY}
+      SECURE_COOKIES: "true"
       RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       PDK_ROOT: /opt/IHP-Open-PDK
@@ -51,7 +60,7 @@ services:
     image: leetspice:prod
     command: ["leetspice-worker"]
     environment:
-      DATABASE_URL: postgresql+psycopg://leetspice_worker:worker_password@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+psycopg://leetspice_worker:${WORKER_DB_PASSWORD}@db:5432/${POSTGRES_DB}
       SECRET_KEY: ${SECRET_KEY}
       RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges

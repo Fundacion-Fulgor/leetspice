@@ -30,6 +30,7 @@ COPY pyproject.toml README.md alembic.ini ./
 COPY src ./src
 COPY migrations ./migrations
 COPY challenges ./challenges
+COPY challenges ./challenges-seed
 COPY scripts ./scripts
 
 RUN python -m pip install --no-cache-dir '.[eda]' \

@@ -1,57 +1,92 @@
-# LeetSpice Deployment Guide
+# LeetSpice — Deployment Guide
 
-This guide explains how to deploy LeetSpice to a production server using Docker Compose and Caddy for automatic HTTPS.
+## Prerequisites
 
-## 1. Prerequisites
+- A Linux server (Ubuntu 22.04+ recommended) with **Docker** and **Docker Compose** installed.
+- A domain name pointing to the server's public IP (e.g., `leetspice.youruniversity.edu`).
+- Ports **80** and **443** open in the firewall.
 
-- A Linux server with Docker and Docker Compose (or Podman Compose) installed.
-- A registered domain name pointing to your server's IP address (e.g., `leetspice.youruniversity.edu`).
+## Quick Start
 
-## 2. Setup Configuration
-
-Clone the repository on your server, then copy the environment template:
+### 1. Clone and configure
 
 ```bash
+git clone <your-repo-url> leetspice && cd leetspice
 cp .env.prod.example .env
 ```
 
-Edit the `.env` file and set the following critical values:
-- `DOMAIN`: Your actual domain name (Caddy will automatically provision Let's Encrypt SSL certificates for this domain).
-- `POSTGRES_PASSWORD`: Generate a strong password.
-- `SECRET_KEY`: Generate a long, random string (e.g., `openssl rand -hex 32`).
+Edit `.env` and **replace every `CHANGE-ME` value**:
 
-## 3. Build and Start the Application
+| Variable | How to generate |
+|---|---|
+| `DOMAIN` | Your real domain, e.g. `leetspice.uni.edu` |
+| `POSTGRES_PASSWORD` | `openssl rand -base64 24` |
+| `WORKER_DB_PASSWORD` | `openssl rand -base64 24` |
+| `SECRET_KEY` | `openssl rand -hex 32` |
 
-Start the containers using the production compose file:
+### 2. Build and start
 
 ```bash
-# Using docker
 docker compose -f compose.prod.yaml up -d --build
-
-# Using podman
-podman compose -f compose.prod.yaml up -d --build
 ```
 
-Wait a few minutes for the `web` and `worker` containers to build and start. Caddy will automatically request an SSL certificate for your domain.
+> First build takes ~10 minutes (compiles Magic, Netgen, OpenVAF, IHP PDK).
+> Subsequent builds use Docker cache and are much faster.
 
-## 4. Create an Admin User
-
-To access the admin panel, you need an administrator account. You can create one using the provided script inside the web container:
+### 3. Create an admin user
 
 ```bash
-docker compose -f compose.prod.yaml exec web python scripts/create_admin.py "admin@youruniversity.edu" "SuperSecret123!" "Admin"
+docker compose -f compose.prod.yaml exec web \
+  python scripts/create_admin.py "admin@uni.edu" "YourPassword" "Admin Name"
 ```
 
-## 5. Persistence and Backups
+### 4. Verify
 
-The `compose.prod.yaml` uses named Docker volumes to persist data:
-- `postgres_data`: Contains all user accounts, submissions, and challenge metadata.
-- `challenges_data`: Contains the actual physical files for the challenges (`.gds`, `.sch`, `.cir`, `judge/` directory, etc.).
-- `worker_data`: Contains temporary files generated during verification.
-- `caddy_data` / `caddy_config`: Contains your SSL certificates.
+Visit `https://your-domain` — Caddy will have already provisioned a Let's Encrypt TLS certificate automatically.
 
-**Backups**: You should periodically back up the `postgres_data` volume (e.g., using `pg_dump`) and the `challenges_data` volume.
+---
 
-## 6. Worker Resource Limits
+## Architecture
 
-By default, the `worker` container is restricted to 1.5 CPUs and 1GB of RAM to prevent student submissions (like infinite loops or huge meshes) from crashing the server. You can adjust these limits in `compose.prod.yaml` under the `deploy.resources.limits` section.
+```
+Internet → Caddy (:80/:443, auto-HTTPS) → web (:8000, FastAPI/Uvicorn)
+                                            ↕
+                                           db (PostgreSQL 16)
+                                            ↕
+                                         worker (judge process, isolated network)
+```
+
+## Volumes and Persistence
+
+| Volume | Contains | Backup priority |
+|---|---|---|
+| `postgres_data` | All users, submissions, scores | **Critical** |
+| `challenges_data` | Challenge files (judge, specs, assets) | High |
+| `worker_data` | Temporary verification scratch files | Low |
+| `caddy_data` | TLS certificates | Medium |
+
+### Backing up the database
+
+```bash
+docker compose -f compose.prod.yaml exec db \
+  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup_$(date +%F).sql
+```
+
+## Security Notes
+
+- **No exposed database port**: PostgreSQL is only reachable by web and worker containers.
+- **Worker isolation**: The worker runs on an `internal` Docker network with no internet access, limited to 1.5 CPUs, 1 GB RAM, and 256 PIDs.
+- **Secure cookies**: Session cookies are set with `Secure`, `HttpOnly`, and `SameSite=Lax` flags in production.
+- **CSRF protection**: All state-changing forms require a signed CSRF token.
+- **Security headers**: Caddy adds `X-Frame-Options`, `X-Content-Type-Options`, `Strict-Transport-Security`, and more.
+- **Rate limiting**: 30 requests/minute per IP (configurable in `main.py`).
+- **Upload size limit**: 10 MB maximum request body.
+
+## Updating
+
+```bash
+git pull
+docker compose -f compose.prod.yaml up -d --build
+```
+
+The web container runs `alembic upgrade head` on startup, so database migrations are applied automatically.
