@@ -7,6 +7,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from .safe_env import safe_env
+
 DRC_COUNT = re.compile(r"LEETSPICE_DRC_COUNT\s+(\d+)")
 
 
@@ -46,7 +48,7 @@ class MagicRunner:
             text=True,
             timeout=self.timeout,
             check=False,
-            env={**os.environ, "HOME": str(work)},
+            env=safe_env(HOME=str(work)),
         )
         if completed.returncode != 0:
             raise ValueError(f"Magic {name} failed: {completed.stdout[-4096:]}")

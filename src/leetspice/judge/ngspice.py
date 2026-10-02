@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from .result import JudgeResult, Measurement
+from .safe_env import safe_env
 from .validator import validate_netlist
 
 TestbenchBuilder = Callable[[str, str, Sequence[str]], str]
@@ -86,6 +87,7 @@ class NgspiceJudge:
                     timeout=self.timeout,
                     check=False,
                     cwd=directory,
+                    env=safe_env(HOME=directory),
                 )
                 output = completed.stdout
                 if output_file.exists():

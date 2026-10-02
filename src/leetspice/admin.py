@@ -254,11 +254,26 @@ class CreateChallengeView(BaseView):
                 tmp.write(zip_bytes)
                 tmp_path = tmp.name
 
+            MAX_ZIP_ENTRIES = 500
+            MAX_ZIP_DECOMPRESSED = 50 * 1024 * 1024  # 50 MiB
             try:
                 with zipfile.ZipFile(tmp_path, "r") as zf:
-                    for name in zf.namelist():
-                        if name.startswith("..") or _Path(name).is_absolute():
-                            raise ValueError(f"ZIP contains dangerous path: {name}")
+                    entries = zf.infolist()
+                    if len(entries) > MAX_ZIP_ENTRIES:
+                        raise ValueError(f"ZIP contains too many entries ({len(entries)} > {MAX_ZIP_ENTRIES})")
+                    total_size = sum(e.file_size for e in entries)
+                    if total_size > MAX_ZIP_DECOMPRESSED:
+                        raise ValueError(f"ZIP decompressed size exceeds {MAX_ZIP_DECOMPRESSED // (1024*1024)} MiB")
+                    for entry in entries:
+                        # Reject symlinks
+                        if entry.external_attr >> 28 == 0xA:
+                            raise ValueError(f"ZIP contains a symlink: {entry.filename}")
+                        # Resolve the target path and ensure it stays inside package_dir
+                        target = (package_dir / entry.filename).resolve()
+                        try:
+                            target.relative_to(package_dir.resolve())
+                        except ValueError:
+                            raise ValueError(f"ZIP contains path traversal: {entry.filename}")
                     zf.extractall(package_dir)
             finally:
                 import os

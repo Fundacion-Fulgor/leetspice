@@ -14,6 +14,7 @@ from .characterization import CharacterizationJudge
 from .magic import MagicRunner
 from .netgen import NetgenRunner
 from .result import JudgeResult, Measurement
+from .safe_env import safe_env
 
 MAX_GDS_BYTES = 8 * 1024 * 1024
 DRC_RULES_PATTERN = re.compile(r"Violated rules are\s*:\s*\{([^}]*)\}")
@@ -187,7 +188,7 @@ class LayoutJudge:
             text=True,
             timeout=self.timeout,
             check=False,
-            env={**os.environ, "HOME": "/tmp", "KLAYOUT_PATH": ""},
+            env=safe_env(HOME="/tmp", KLAYOUT_PATH=""),
         )
         if completed.returncode != 0:
             if stage == "DRC":

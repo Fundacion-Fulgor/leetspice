@@ -6,6 +6,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from .safe_env import safe_env
+
 LVS_SUCCESS = "Circuits match uniquely"
 
 
@@ -44,7 +46,7 @@ class NetgenRunner:
             text=True,
             timeout=self.timeout,
             check=False,
-            env={**os.environ, "HOME": str(work)},
+            env=safe_env(HOME=str(work)),
         )
         if not report.is_file():
             raise ValueError(f"Netgen did not produce an LVS report: {completed.stdout[-4096:]}")

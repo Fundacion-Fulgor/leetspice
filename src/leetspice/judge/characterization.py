@@ -14,6 +14,7 @@ from string import Template
 
 from .definition import CharacterizationDefinition, ScoreDefinition, TestDefinition, load_definition
 from .result import JudgeResult, Measurement
+from .safe_env import safe_env
 from .validator import validate_netlist, validate_structure
 
 RESULT_PATTERN = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s+([^\s]+)$")
@@ -75,7 +76,11 @@ class CharacterizationJudge:
 
         try:
             import re
-            if re.search(r"^\s*\.(system|shell|control|exec|include|lib)", netlist, re.IGNORECASE | re.MULTILINE):
+            if re.search(
+                r"^\s*\.(system|shell|control|exec|include|lib|loadmodule|osdi|load|rawfile|save)\b",
+                netlist,
+                re.IGNORECASE | re.MULTILINE,
+            ):
                 raise ValueError("PEX netlist contains forbidden SPICE directives injected via GDS labels")
 
             challenge_root = (self.challenges_path / fixture_path).resolve()
@@ -145,12 +150,11 @@ class CharacterizationJudge:
                         text=True,
                         timeout=min(test.timeout, remaining),
                         check=False,
-                        env={
-                            **os.environ,
-                            "HOME": str(run),
-                            "PDK_ROOT": str(self.pdk_root),
-                            "PDK": "ihp-sg13g2",
-                        },
+                        env=safe_env(
+                            HOME=str(run),
+                            PDK_ROOT=str(self.pdk_root),
+                            PDK="ihp-sg13g2",
+                        ),
                     )
                     if completed.returncode != 0:
                         log_path = run / "ngspice.log"

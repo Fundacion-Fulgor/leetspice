@@ -64,7 +64,6 @@ services:
     command: ["leetspice-worker"]
     environment:
       DATABASE_URL: postgresql+psycopg://leetspice_worker:${WORKER_DB_PASSWORD}@db:5432/${POSTGRES_DB}
-      SECRET_KEY: ${SECRET_KEY}
       RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       WORKER_DATA_DIR: /var/lib/leetspice
