@@ -71,12 +71,9 @@ services:
     restart: unless-stopped
     networks:
       - isolated_worker
-    deploy:
-      resources:
-        limits:
-          cpus: '1.5'
-          memory: 1G
-          pids: 256
+    # Resource limits (deploy.resources) removed for local dev;
+    # Podman rootless on WSL2 lacks cgroup controllers.
+    # See compose.prod.yaml for production limits.
     volumes:
       - worker_data:/var/lib/leetspice
       - ./challenges:/app/challenges

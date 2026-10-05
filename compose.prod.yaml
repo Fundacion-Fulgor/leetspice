@@ -84,7 +84,7 @@ services:
         limits:
           cpus: '1.5'
           memory: 1G
-          pids: 256
+          # pids: 256  # Requires cgroups v2 pids controller; enable on supported hosts
     volumes:
       - worker_data:/var/lib/leetspice
       - challenges_data:/app/challenges:ro
