@@ -1,9 +1,12 @@
 from hashlib import sha256
+from pathlib import Path
 
 from sqlalchemy import select
 
 from leetspice import db
 from leetspice.models import Challenge, Submission, User
+
+CHALLENGES = Path(__file__).parents[1] / "challenges"
 
 
 def test_registration_login_logout_and_csrf(client, csrf, register):
@@ -37,6 +40,47 @@ def test_registration_login_logout_and_csrf(client, csrf, register):
         user = session.scalar(select(User).where(User.email == "designer@example.com"))
         assert user is not None
         assert user.password_hash.startswith("$argon2")
+
+
+def test_retired_challenge_slug_redirects_to_replacement(client):
+    with db.SessionLocal() as session:
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "mos-gmid"))
+        challenge.retired_slugs = ["old-mos-gmid"]
+        session.commit()
+
+    response = client.get("/challenges/old-mos-gmid", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/challenges/mos-gmid"
+
+
+def test_guided_challenge_has_no_leaderboard_panel(client):
+    with db.SessionLocal() as session:
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "mos-gmid"))
+        challenge.is_ranked = False
+        session.commit()
+
+    response = client.get("/challenges/mos-gmid")
+    assert response.status_code == 200
+    assert "GUIDED LAB" in response.text
+    assert "Fundación Fulgor scholarships" not in response.text
+
+
+def test_challenge_renders_safe_collapsible_markdown(client):
+    with db.SessionLocal() as session:
+        challenge = session.scalar(
+            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
+        )
+        challenge.description = "# Hidden title\n\n## Limits\n\n- **Delay:** `500 ps`\n\n<script>alert(1)</script>"
+        session.commit()
+
+    response = client.get("/challenges/demo-cmos-inverter")
+
+    assert response.status_code == 200
+    assert '<details class="full-brief">' in response.text
+    assert "<h2>Limits</h2>" in response.text
+    assert "<strong>Delay:</strong> <code>500 ps</code>" in response.text
+    assert "<script>alert(1)</script>" not in response.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
 
 
 def test_submission_preserves_netlist_and_is_private(client, csrf, register):
@@ -139,6 +183,46 @@ def test_submission_keeps_flat_results_for_non_pvt_backend(client, register):
     assert 'aria-label="Process corner"' not in response.text
 
 
+def test_my_submissions_is_private_filtered_and_versioned(client, register):
+    assert client.get("/submissions", follow_redirects=False).headers["location"] == "/login"
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
+        challenge.verification_version = 2
+        session.add_all(
+            [
+                Submission(
+                    user_id=user.id,
+                    challenge_id=challenge.id,
+                    verification_version=challenge.verification_version,
+                    netlist="accepted",
+                    status="accepted",
+                    score=10,
+                ),
+                Submission(
+                    user_id=user.id,
+                    challenge_id=challenge.id,
+                    verification_version=1,
+                    netlist="failed",
+                    status="failed",
+                ),
+            ]
+        )
+        session.commit()
+
+    response = client.get("/submissions")
+    assert response.status_code == 200
+    assert "My submissions" in response.text
+    assert response.text.count("history-row") == 2
+    assert "OLDER VERIFICATION v1" in response.text
+    accepted = client.get("/submissions?status=accepted")
+    assert accepted.text.count("history-row") == 1
+    assert "ACCEPTED" in accepted.text
+    assert "FAILED" not in accepted.text
+    assert client.get("/submissions?status=unknown").status_code == 404
+
+
 def test_leaderboard_uses_each_users_best_accepted_score(client, register):
     register(email="first@example.com", name="First")
     register(email="second@example.com", name="Second")
@@ -153,6 +237,7 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
                 Submission(
                     user_id=users["First"].id,
                     challenge_id=challenge.id,
+                    verification_version=challenge.verification_version,
                     netlist="a",
                     status="accepted",
                     score=8.0,
@@ -160,6 +245,7 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
                 Submission(
                     user_id=users["First"].id,
                     challenge_id=challenge.id,
+                    verification_version=challenge.verification_version,
                     netlist="b",
                     status="accepted",
                     score=3.0,
@@ -167,6 +253,7 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
                 Submission(
                     user_id=users["Second"].id,
                     challenge_id=challenge.id,
+                    verification_version=challenge.verification_version,
                     netlist="c",
                     status="accepted",
                     score=5.0,
@@ -174,6 +261,7 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
                 Submission(
                     user_id=users["Second"].id,
                     challenge_id=challenge.id,
+                    verification_version=challenge.verification_version,
                     netlist="d",
                     status="failed",
                     score=1.0,
@@ -190,13 +278,44 @@ def test_leaderboard_uses_each_users_best_accepted_score(client, register):
     assert ">3 <small>points" not in response.text
 
 
+def test_leaderboard_excludes_stale_verification_versions(client, register):
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
+        challenge.verification_version = 2
+        session.add(
+            Submission(
+                user_id=user.id,
+                challenge_id=challenge.id,
+                verification_version=1,
+                netlist="stale",
+                status="accepted",
+                score=99.0,
+            )
+        )
+        session.commit()
+
+    response = client.get("/challenges/demo-cmos-inverter/leaderboard")
+    assert response.status_code == 200
+    assert "No accepted submissions" in response.text
+
+
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_global_leaderboard_is_public_and_linked(client):
+    response = client.get("/leaderboard")
+    assert response.status_code == 200
+    assert "Difficulty-weighted rankings" in response.text
+    assert "introductory 1×" in response.text
+    assert 'href="/leaderboard"' in client.get("/").text
+
+
 def test_stylesheet_url_is_versioned(client):
     response = client.get("/")
-    assert "/static/app.css?v=6" in response.text
+    assert "/static/app.css?v=7" in response.text
     assert "Fundación Fulgor" in response.text
     assert "A Fulgor Foundation project" in response.text
     assert "/static/fulgor-mark.png" in response.text
@@ -289,7 +408,7 @@ def test_manifest_seeding_and_grouping(client):
     assert "introductory" in response.text
     with db.SessionLocal() as session:
         challenges = session.scalars(select(Challenge)).all()
-        assert len(challenges) == 31
+        assert len(challenges) == len(list(CHALLENGES.glob("*/challenge.json")))
         for c in challenges:
             if c.slug == "demo-cmos-inverter":
                 assert c.difficulty == "introductory"

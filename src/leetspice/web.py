@@ -2,21 +2,40 @@
 
 import re
 from collections.abc import Sequence
+from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markdown_it import MarkdownIt
+from markupsafe import Markup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import hash_password, new_session, require_csrf, verify_password
+from .config import get_settings
 from .db import get_session
+from .judge.validator import validate_netlist
+from .leaderboards import global_leaderboard
+from .limiter import limiter
 from .models import Challenge, Submission, User
 
 router = APIRouter()
+markdown = MarkdownIt("commonmark", {"html": False, "linkify": False}).enable("table")
+SUBMISSIONS_PAGE_SIZE = 25
 templates = Jinja2Templates(
     directory=str(__import__("pathlib").Path(__file__).parent / "templates")
 )
@@ -25,6 +44,65 @@ templates = Jinja2Templates(
 def _current_user(request: Request, db: Session) -> User | None:
     user_id = request.state.session.get("user_id")
     return db.get(User, user_id) if user_id else None
+
+
+def _completed_slugs(db: Session, user: User | None) -> set[str]:
+    """Return the set of challenge slugs for which *user* has an accepted submission."""
+    if user is None:
+        return set()
+    return set(
+        db.scalars(
+            select(Challenge.slug)
+            .join(Submission, Submission.challenge_id == Challenge.id)
+            .where(Submission.user_id == user.id, Submission.status == "accepted")
+            .distinct()
+        ).all()
+    )
+
+
+def _challenge_progress(
+    db: Session, user: User | None, challenges: Sequence[Challenge],
+) -> dict[str, str]:
+    """Map every challenge slug to a progress token for the logged-in user.
+
+    Possible values: ``'completed'``, ``'in_progress'``, ``'not_started'``,
+    ``'locked'`` (prerequisites not met – takes priority).
+    """
+    if user is None:
+        return {}
+    completed = _completed_slugs(db, user)
+    attempted = set(
+        db.scalars(
+            select(Challenge.slug)
+            .join(Submission, Submission.challenge_id == Challenge.id)
+            .where(Submission.user_id == user.id)
+            .distinct()
+        ).all()
+    )
+    progress: dict[str, str] = {}
+    for challenge in challenges:
+        prereqs = challenge.prerequisites or []
+        if prereqs and not all(slug in completed for slug in prereqs):
+            progress[challenge.slug] = "locked"
+        elif challenge.slug in completed:
+            progress[challenge.slug] = "completed"
+        elif challenge.slug in attempted:
+            progress[challenge.slug] = "in_progress"
+        else:
+            progress[challenge.slug] = "not_started"
+    return progress
+
+
+def _missing_prerequisites(
+    db: Session, challenge: Challenge, completed: set[str],
+) -> list[Challenge]:
+    """Return the *Challenge* objects the user still needs to complete."""
+    missing_slugs = [slug for slug in (challenge.prerequisites or []) if slug not in completed]
+    if not missing_slugs:
+        return []
+    return list(
+        db.scalars(select(Challenge).where(Challenge.slug.in_(missing_slugs))).all()
+    )
 
 
 def _context(request: Request, db: Session, **values: object) -> dict[str, object]:
@@ -39,14 +117,6 @@ def _context(request: Request, db: Session, **values: object) -> dict[str, objec
 def _validate_netlist(netlist: str, challenge: Challenge) -> None:
     if not netlist:
         raise ValueError("Netlist cannot be empty")
-    try:
-        from leetspice.judge.validation import validate_netlist
-    except ImportError:
-        try:
-            from leetspice.judge.validator import validate_netlist
-        except ImportError:
-            # Web development remains usable before an optional judge package is installed.
-            return
     validate_netlist(netlist, challenge.expected_subckt, challenge.expected_pins)
 
 
@@ -56,6 +126,7 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
         select(Submission.user_id, aggregate(Submission.score).label("best_score"))
         .where(
             Submission.challenge_id == challenge.id,
+            Submission.verification_version == challenge.verification_version,
             Submission.status == "accepted",
             Submission.score.is_not(None),
         )
@@ -70,9 +141,16 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
 
 @router.get("/", response_class=HTMLResponse)
 def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
-    challenges = db.scalars(
-        select(Challenge).where(Challenge.is_active.is_(True)).order_by(Challenge.id)
-    ).all()
+    user = _current_user(request, db)
+    is_admin = user is not None and user.is_admin
+    show_all = is_admin and request.query_params.get("show_all") == "1"
+
+    query = select(Challenge).order_by(Challenge.curriculum_order, Challenge.id)
+    if not show_all:
+        query = query.where(Challenge.is_active.is_(True))
+    challenges = db.scalars(query).all()
+
+    progress = _challenge_progress(db, user, challenges)
     # Group challenges by track
     tracks: dict[str, list[Challenge]] = {}
     for c in challenges:
@@ -80,7 +158,13 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
     return templates.TemplateResponse(
         request,
         "catalog.html",
-        _context(request, db, tracks=tracks, challenges_count=len(challenges)),
+        _context(
+            request, db,
+            tracks=tracks,
+            challenges_count=len(challenges),
+            progress=progress,
+            show_all=show_all,
+        ),
     )
 
 
@@ -89,7 +173,181 @@ def register_form(request: Request, db: Annotated[Session, Depends(get_session)]
     return templates.TemplateResponse(request, "register.html", _context(request, db))
 
 
+@router.get("/leaderboard", response_class=HTMLResponse)
+def global_board(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    challenges = db.scalars(
+        select(Challenge)
+        .where(Challenge.is_active.is_(True), Challenge.is_ranked.is_(True))
+        .order_by(Challenge.curriculum_order, Challenge.id)
+    ).all()
+    return templates.TemplateResponse(
+        request,
+        "global_leaderboard.html",
+        _context(
+            request,
+            db,
+            leaders=global_leaderboard(db),
+            maximum_points=sum(
+                {"introductory": 1, "intermediate": 2, "advanced": 3, "capstone": 4}[
+                    challenge.difficulty
+                ]
+                * 100
+                for challenge in challenges
+            ),
+        ),
+    )
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    leaders = global_leaderboard(db)
+    my_ranking = next((leader for leader in leaders if leader.user.id == user.id), None)
+
+    total_challenges = db.scalar(
+        select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
+    ) or 0
+    completed_challenges = db.scalar(
+        select(func.count(func.distinct(Submission.challenge_id))).where(
+            Submission.user_id == user.id, Submission.status == "accepted"
+        )
+    ) or 0
+
+    resolved_count = db.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.user_id == user.id,
+            Submission.status.in_(("accepted", "failed", "rejected")),
+        )
+    ) or 0
+    accepted_count = db.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.user_id == user.id, Submission.status == "accepted"
+        )
+    ) or 0
+    success_rate = (accepted_count / resolved_count * 100) if resolved_count else 0.0
+
+    recent = db.scalars(
+        select(Submission)
+        .options(selectinload(Submission.challenge))
+        .where(Submission.user_id == user.id)
+        .order_by(Submission.created_at.desc(), Submission.id.desc())
+        .limit(5)
+    ).all()
+
+    submission_dates = db.scalars(
+        select(func.distinct(func.date(Submission.created_at))).where(
+            Submission.user_id == user.id
+        )
+    ).all()
+    today = date.today()
+    date_set = {d if isinstance(d, date) else date.fromisoformat(str(d)) for d in submission_dates}
+    streak = 0
+    check = today
+    if check not in date_set:
+        check -= timedelta(days=1)
+    while check in date_set:
+        streak += 1
+        check -= timedelta(days=1)
+
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        _context(
+            request,
+            db,
+            ranking=my_ranking,
+            total_challenges=total_challenges,
+            completed_challenges=completed_challenges,
+            success_rate=success_rate,
+            recent=recent,
+            streak=streak,
+        ),
+    )
+
+
+@router.get("/profile", response_class=HTMLResponse)
+def profile_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(request, "profile.html", _context(request, db))
+
+
+@router.post("/profile", response_class=HTMLResponse)
+def profile_update(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    display_name: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    name = display_name.strip()
+    if not name or len(name) > 80:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, name_error="Display name must be between 1 and 80 characters.", show_name=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    if name == user.display_name:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, name_error="New name is the same as the current one.", show_name=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    user.display_name = name
+    db.commit()
+    return templates.TemplateResponse(
+        request, "profile.html", _context(request, db, name_success=True, show_name=True)
+    )
+
+
+@router.post("/profile/password", response_class=HTMLResponse)
+def profile_password(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    current_password: Annotated[str, Form()],
+    new_password: Annotated[str, Form()],
+    confirm_password: Annotated[str, Form()],
+    csrf_token: Annotated[str, Form()],
+) -> HTMLResponse:
+    require_csrf(request, csrf_token)
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    error = None
+    if not verify_password(user.password_hash, current_password):
+        error = "Current password is incorrect."
+    elif len(new_password) < 10:
+        error = "New password must be at least 10 characters."
+    elif new_password != confirm_password:
+        error = "Passwords do not match."
+    elif verify_password(user.password_hash, new_password):
+        error = "New password must be different from the current one."
+    if error:
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, db, password_error=error, show_password=True),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+    user.password_hash = hash_password(new_password)
+    db.commit()
+    request.state.session = new_session(user.id, request.app.state.settings)
+    return templates.TemplateResponse(
+        request, "profile.html", _context(request, db, password_success=True, show_password=True)
+    )
+
+
 @router.post("/register", response_class=HTMLResponse)
+@limiter.limit(get_settings().rate_limit_auth)
 def register(
     request: Request,
     db: Annotated[Session, Depends(get_session)],
@@ -130,6 +388,7 @@ def login_form(request: Request, db: Annotated[Session, Depends(get_session)]) -
 
 
 @router.post("/login", response_class=HTMLResponse)
+@limiter.limit(get_settings().rate_limit_auth)
 def login(
     request: Request,
     db: Annotated[Session, Depends(get_session)],
@@ -161,15 +420,55 @@ def logout(request: Request, csrf_token: Annotated[str, Form()]) -> RedirectResp
 def challenge_detail(
     slug: str, request: Request, db: Annotated[Session, Depends(get_session)]
 ) -> HTMLResponse:
-    challenge = db.scalar(
-        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
-    )
+    user = _current_user(request, db)
+    is_admin = user is not None and user.is_admin
+
+    # Fetch challenge. Admins can see inactive ones.
+    if is_admin:
+        challenge = db.scalar(select(Challenge).where(Challenge.slug == slug))
+    else:
+        challenge = db.scalar(
+            select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+        )
+
     if challenge is None:
+        replacement = next(
+            (
+                item
+                for item in db.scalars(
+                    select(Challenge).where(Challenge.is_active.is_(True))
+                ).all()
+                if slug in item.retired_slugs
+            ),
+            None,
+        )
+        if replacement is not None:
+            return RedirectResponse(
+                f"/challenges/{replacement.slug}", status_code=status.HTTP_301_MOVED_PERMANENTLY
+            )
         raise HTTPException(status_code=404)
+
+    completed = _completed_slugs(db, user)
+    prereqs = challenge.prerequisites or []
+    prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
+    missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
+    
+    is_preview = request.query_params.get("preview") == "1"
+
     return templates.TemplateResponse(
         request,
         "challenge.html",
-        _context(request, db, challenge=challenge, leaders=_leaderboard(db, challenge)),
+        _context(
+            request,
+            db,
+            challenge=challenge,
+            description_html=Markup(markdown.render(challenge.description)),
+            leaders=_leaderboard(db, challenge),
+            prerequisites_met=prerequisites_met,
+            missing_prerequisites=missing,
+            is_draft=not challenge.is_active,
+            is_preview=is_preview,
+        ),
     )
 
 
@@ -210,6 +509,7 @@ def challenge_asset(
 
 
 @router.post("/challenges/{slug}/submit", response_class=HTMLResponse)
+@limiter.limit(get_settings().rate_limit_submission)
 async def submit(
     slug: str,
     request: Request,
@@ -222,11 +522,33 @@ async def submit(
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-    challenge = db.scalar(
-        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
-    )
+    is_admin = user is not None and user.is_admin
+    if is_admin:
+        challenge = db.scalar(select(Challenge).where(Challenge.slug == slug))
+    else:
+        challenge = db.scalar(
+            select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
+        )
     if challenge is None:
         raise HTTPException(status_code=404)
+    completed = _completed_slugs(db, user)
+    prereqs = challenge.prerequisites or []
+    if prereqs and not all(slug in completed for slug in prereqs):
+        missing = _missing_prerequisites(db, challenge, completed)
+        return templates.TemplateResponse(
+            request,
+            "challenge.html",
+            _context(
+                request,
+                db,
+                challenge=challenge,
+                leaders=_leaderboard(db, challenge),
+                prerequisites_met=False,
+                missing_prerequisites=missing,
+                error="Complete all prerequisite challenges before submitting.",
+            ),
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     try:
         if challenge.submission_kind == "gds":
             maximum = int(challenge.submission_config.get("maximum_bytes", 8 * 1024 * 1024))
@@ -244,6 +566,7 @@ async def submit(
             submission = Submission(
                 user_id=user.id,
                 challenge_id=challenge.id,
+                verification_version=challenge.verification_version,
                 submission_kind="gds",
                 payload_binary=payload,
                 original_filename=filename[:255],
@@ -257,6 +580,7 @@ async def submit(
             submission = Submission(
                 user_id=user.id,
                 challenge_id=challenge.id,
+                verification_version=challenge.verification_version,
                 submission_kind="netlist",
                 netlist=netlist,
                 payload_size=len(encoded),
@@ -273,6 +597,8 @@ async def submit(
                 leaders=_leaderboard(db, challenge),
                 error=str(exc),
                 submitted_netlist=netlist,
+                prerequisites_met=True,
+                missing_prerequisites=[],
             ),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -323,6 +649,54 @@ def _pvt_results(submission: Submission) -> list[dict[str, object]]:
     ]
 
 
+@router.get("/submissions", response_class=HTMLResponse)
+def my_submissions(
+    request: Request,
+    db: Annotated[Session, Depends(get_session)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    status_filter: Annotated[str, Query(alias="status")] = "all",
+) -> HTMLResponse:
+    user = _current_user(request, db)
+    if user is None:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+    filters = {
+        "all": (),
+        "active": ("queued", "running"),
+        "accepted": ("accepted",),
+        "failed": ("failed", "rejected"),
+    }
+    if status_filter not in filters:
+        raise HTTPException(status_code=404)
+    conditions = [Submission.user_id == user.id]
+    if filters[status_filter]:
+        conditions.append(Submission.status.in_(filters[status_filter]))
+    total = db.scalar(select(func.count(Submission.id)).where(*conditions)) or 0
+    page_count = max(1, (total + SUBMISSIONS_PAGE_SIZE - 1) // SUBMISSIONS_PAGE_SIZE)
+    if page > page_count:
+        raise HTTPException(status_code=404)
+    submissions = db.scalars(
+        select(Submission)
+        .options(selectinload(Submission.challenge))
+        .where(*conditions)
+        .order_by(Submission.created_at.desc(), Submission.id.desc())
+        .offset((page - 1) * SUBMISSIONS_PAGE_SIZE)
+        .limit(SUBMISSIONS_PAGE_SIZE)
+    ).all()
+    return templates.TemplateResponse(
+        request,
+        "my_submissions.html",
+        _context(
+            request,
+            db,
+            submissions=submissions,
+            page=page,
+            page_count=page_count,
+            status_filter=status_filter,
+            total=total,
+        ),
+    )
+
+
 @router.get("/submissions/{submission_id}", response_class=HTMLResponse)
 def submission_detail(
     submission_id: int, request: Request, db: Annotated[Session, Depends(get_session)]
@@ -336,6 +710,7 @@ def submission_detail(
 
 
 @router.get("/submissions/{submission_id}/status", response_class=HTMLResponse)
+@limiter.exempt
 def submission_status(
     submission_id: int, request: Request, db: Annotated[Session, Depends(get_session)]
 ) -> HTMLResponse:

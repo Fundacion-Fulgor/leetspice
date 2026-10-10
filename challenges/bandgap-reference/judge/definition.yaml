@@ -1,0 +1,27 @@
+version: 1
+conditions:
+  corner:
+  - tt
+  temperature:
+  - 27
+tests:
+- name: functional
+  template: judge/tests/functional.cir
+  timeout: 30
+  sweep:
+    corner: all
+    temperature: all
+  measurements:
+  - name: reference_voltage
+    unit: V
+    minimum: 1.0e-06
+    maximum: 1.199999
+  - name: supply_current
+    unit: A
+    minimum: 1.0e-12
+    maximum: 0.05
+score:
+  strategy: efficiency
+  measurement: reference_voltage
+  scale: 1.0e-06
+  denominator: supply_current

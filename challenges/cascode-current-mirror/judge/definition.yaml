@@ -1,0 +1,42 @@
+version: 2
+execution: {maximum_runs: 9, total_timeout: 60}
+conditions:
+  corner:
+  - tt
+  - ss
+  - ff
+  temperature:
+  - -40
+  - 27
+  - 125
+tests:
+- name: functional
+  template: judge/tests/functional.cir
+  timeout: 30
+  sweep:
+    corner: all
+    temperature: all
+  measurements:
+  - name: low_current
+    unit: A
+    minimum: 4.7e-5
+    maximum: 5.3e-5
+  - name: mid_current
+    unit: A
+    minimum: 4.7e-5
+    maximum: 5.3e-5
+  - name: high_current
+    unit: A
+    minimum: 4.7e-5
+    maximum: 5.3e-5
+  - name: current_error
+    unit: ratio
+    minimum: 0
+    maximum: 0.05
+  - name: output_resistance
+    unit: ohm
+    minimum: 1000000
+score:
+  objectives:
+  - {measurement: current_error, direction: minimize, aggregation: maximum, normalization: 0.05}
+  - {measurement: output_resistance, direction: maximize, aggregation: minimum, normalization: 1300000}

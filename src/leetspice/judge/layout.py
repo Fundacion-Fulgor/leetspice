@@ -10,10 +10,13 @@ from pathlib import Path
 
 import yaml
 
+from .characterization import CharacterizationJudge
+from .magic import MagicRunner
+from .netgen import NetgenRunner
 from .result import JudgeResult, Measurement
+from .safe_env import safe_env
 
 MAX_GDS_BYTES = 8 * 1024 * 1024
-LVS_SUCCESS = "Congratulations! Netlists match."
 DRC_RULES_PATTERN = re.compile(r"Violated rules are\s*:\s*\{([^}]*)\}")
 DRC_COUNT_PATTERN = re.compile(r"Number of DRC errors for maximum rule set:\s*(\d+)", re.IGNORECASE)
 SUBCKT_PATTERN = re.compile(r"^\.subckt\s+\S+\s+(.+)$", re.IGNORECASE | re.MULTILINE)
@@ -31,14 +34,12 @@ class LayoutJudge:
         self,
         challenges_path: str | Path | None = None,
         pdk_root: str | Path | None = None,
-        klayout: str = "klayout",
         timeout: float = 300.0,
     ) -> None:
         self.challenges_path = Path(
             challenges_path or os.getenv("CHALLENGES_PATH", "/app/challenges")
         )
         self.pdk_root = Path(pdk_root or os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK"))
-        self.klayout = klayout
         self.timeout = timeout
 
     def judge(
@@ -59,82 +60,54 @@ class LayoutJudge:
         try:
             reference.relative_to(challenge_root)
         except ValueError:
-            return JudgeResult(False, 0.0, message="invalid layout reference path")
+            return JudgeResult(False, 0.0, message="reference netlist escapes challenge root")
         if not reference.is_file():
             return JudgeResult(False, 0.0, message="layout reference netlist is missing")
 
-        tech = self.pdk_root / "ihp-sg13g2" / "libs.tech" / "klayout" / "tech"
-        drc_runner = tech / "drc" / "run_drc.py"
-        lvs_runner = tech / "lvs" / "run_lvs.py"
-        inspect_macro = Path("/app/scripts/inspect-layout.rb")
-        if not all(path.is_file() for path in (drc_runner, lvs_runner, inspect_macro)):
+        magicrc = self.pdk_root / "ihp-sg13g2/libs.tech/magic/ihp-sg13g2.magicrc"
+        netgen_setup = self.pdk_root / "ihp-sg13g2/libs.tech/netgen/ihp-sg13g2_setup.tcl"
+        if not all(path.is_file() for path in (magicrc, netgen_setup)):
             return JudgeResult(False, 0.0, message="layout verification toolchain is incomplete")
 
         try:
             with tempfile.TemporaryDirectory(prefix="leetspice-layout-") as directory:
                 work = Path(directory)
                 gds = work / "submission.gds"
-                inspection = work / "inspection.yaml"
                 gds.write_bytes(payload)
-                self._run(
-                    [
-                        self.klayout,
-                        "-b",
-                        "-r",
-                        str(inspect_macro),
-                        "-rd",
-                        f"input={gds}",
-                        "-rd",
-                        f"expected={expected_top}",
-                        "-rd",
-                        f"output={inspection}",
-                    ],
-                    "GDS inspection",
-                )
-                metadata = yaml.safe_load(inspection.read_text(encoding="utf-8"))
-                area = float(metadata["area_um2"])
-                cell_count = int(metadata["cell_count"])
 
-                drc_directory = work / "drc"
-                drc_command = [
-                    "python",
-                    str(drc_runner),
-                    f"--path={gds}",
-                    f"--topcell={expected_top}",
-                    "--run_mode=deep",
-                    f"--run_dir={drc_directory}",
-                    "--mp=1",
-                    "--no_density",
-                ]
-                self._run(drc_command, "DRC")
-                if not any(drc_directory.glob("*.lyrdb")):
-                    raise ValueError("DRC did not produce a result database")
+                def rem_time():
+                    t = deadline - time.monotonic()
+                    if t <= 0: raise subprocess.TimeoutExpired("layout", self.timeout)
+                    return t
 
-                lvs_directory = work / "lvs"
-                self._run(
-                    [
-                        "python",
-                        str(lvs_runner),
-                        f"--layout={gds}",
-                        f"--netlist={reference}",
-                        f"--topcell={expected_top}",
-                        "--run_mode=deep",
-                        f"--run_dir={lvs_directory}",
-                    ],
-                    "LVS",
-                )
-                reports = list(lvs_directory.glob("*.lvsdb"))
-                extracted_netlists = list(lvs_directory.glob("*_extracted.cir"))
-                logs = list(lvs_directory.glob("*.log"))
-                if not reports or not extracted_netlists or not logs:
-                    raise ValueError("LVS did not produce all required results")
-                lvs_output = "\n".join(
-                    path.read_text(encoding="utf-8", errors="replace") for path in logs
-                )
-                if LVS_SUCCESS not in lvs_output:
-                    extracted_netlist = extracted_netlists[0].read_text(
-                        encoding="utf-8", errors="replace"
+                try:
+                    with ProcessPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(self._inspect, gds, expected_top)
+                        area, cell_count = future.result(timeout=rem_time())
+                except Exception:
+                    return JudgeResult(False, 0.0, message="GDSII parsing failed: malformed layout or crash")
+
+                magic = MagicRunner(pdk_root=self.pdk_root, timeout=rem_time())
+                violations = magic.drc(gds, expected_top, work)
+                if violations:
+                    return JudgeResult(
+                        False,
+                        0.0,
+                        (
+                            Measurement("bounding_box_area", round(area, 6), "um^2", True),
+                            Measurement("cell_count", float(cell_count), "cells", True),
+                            Measurement("drc", float(violations), "violations", False),
+                        ),
+                        f"DRC failed with {violations} violation(s)",
                     )
+                
+                magic.timeout = rem_time()
+                extracted = magic.extract_lvs(gds, expected_top, work)
+                try:
+                    NetgenRunner(pdk_root=self.pdk_root, timeout=rem_time()).lvs(
+                        extracted, reference, expected_top, work
+                    )
+                except ValueError:
                     return JudgeResult(
                         False,
                         0.0,
@@ -144,7 +117,42 @@ class LayoutJudge:
                             Measurement("drc", 0.0, "violations", True),
                             Measurement("lvs", 0.0, "match", False),
                         ),
-                        self._lvs_failure(extracted_netlist, reference, expected_pins),
+                        self._lvs_failure(
+                            extracted.read_text(encoding="utf-8", errors="replace"),
+                            reference,
+                            expected_pins,
+                        ),
+                    )
+                
+                magic.timeout = rem_time()
+                pex = magic.extract_pex(
+                    gds, expected_top, work, str(config.get("pex_mode", "coupled_c"))
+                )
+                electrical = CharacterizationJudge(
+                    challenges_path=self.challenges_path,
+                    pdk_root=self.pdk_root,
+                ).judge_extracted(
+                    self._normalize_pex_pins(
+                        pex.read_text(encoding="utf-8", errors="replace"),
+                        expected_top,
+                        expected_pins,
+                    ),
+                    fixture_path,
+                    config,
+                )
+                if not electrical.accepted:
+                    return JudgeResult(
+                        False,
+                        0.0,
+                        (
+                            Measurement("bounding_box_area", round(area, 6), "um^2", True),
+                            Measurement("cell_count", float(cell_count), "cells", True),
+                            Measurement("drc", 0.0, "violations", True),
+                            Measurement("lvs", 1.0, "match", True),
+                            Measurement("pex", 1.0, "extracted", True),
+                            *electrical.measurements,
+                        ),
+                        electrical.message,
                     )
         except subprocess.TimeoutExpired:
             return JudgeResult(
@@ -160,9 +168,16 @@ class LayoutJudge:
             Measurement("cell_count", float(cell_count), "cells", True),
             Measurement("drc", 0.0, "violations", True),
             Measurement("lvs", 1.0, "match", True),
+            Measurement("pex", 1.0, "extracted", True),
+            *electrical.measurements,
         )
-        score = round(1_000.0 / max(area, 0.001), 6)
-        return JudgeResult(True, score, measurements, "SG13G2 DRC and strict LVS passed")
+        score = round(electrical.score * 1_000.0 / max(area, 0.001), 6)
+        return JudgeResult(
+            True,
+            score,
+            measurements,
+            "SG13G2 DRC, LVS, PEX, and post-layout characterization passed",
+        )
 
     def _run(self, command: list[str], stage: str) -> None:
         completed = subprocess.run(
@@ -173,13 +188,37 @@ class LayoutJudge:
             text=True,
             timeout=self.timeout,
             check=False,
-            env={**os.environ, "HOME": "/tmp", "KLAYOUT_PATH": ""},
+            env=safe_env(HOME="/tmp", KLAYOUT_PATH=""),
         )
         if completed.returncode != 0:
             if stage == "DRC":
                 raise ValueError(self._drc_failure(completed.stdout))
             output = completed.stdout[-8_192:]
             raise ValueError(f"{stage} failed: {output}")
+
+    @staticmethod
+    def _inspect(gds: Path, expected_top: str) -> tuple[float, int]:
+        from klayout import db as kdb
+
+        layout = kdb.Layout()
+        layout.read(str(gds))
+        tops = sorted(cell.name for cell in layout.top_cells())
+        if tops != [expected_top]:
+            raise ValueError(f"expected exactly one top cell {expected_top!r}, found {tops!r}")
+        bbox = layout.cell(expected_top).bbox()
+        if bbox.empty():
+            raise ValueError("top cell is empty")
+        area = bbox.width() * layout.dbu * bbox.height() * layout.dbu
+        if area <= 0:
+            raise ValueError("layout area is not positive")
+        return area, layout.cells()
+
+    @staticmethod
+    def _normalize_pex_pins(netlist: str, top: str, pins: list[str]) -> str:
+        pattern = re.compile(rf"^\.subckt\s+{re.escape(top)}\s+.+$", re.IGNORECASE | re.MULTILINE)
+        if pattern.search(netlist) is None:
+            raise ValueError("PEX netlist is missing the expected top-level subcircuit")
+        return pattern.sub(f".subckt {top} {' '.join(pins)}", netlist, count=1)
 
     @staticmethod
     def _drc_failure(output: str) -> str:

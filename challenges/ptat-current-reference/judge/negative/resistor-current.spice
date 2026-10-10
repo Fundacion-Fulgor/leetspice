@@ -1,0 +1,3 @@
+.subckt ptat_current_reference vdd vss out
+RBIAS vdd out 100k
+.ends ptat_current_reference

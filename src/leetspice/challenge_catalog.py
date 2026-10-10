@@ -10,13 +10,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .judge.profile import PROFILE_LIMITS
 from .models import Challenge
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.$-]*$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-BACKENDS = {"cace", "klayout", "profile"}
+BACKENDS = {"characterization", "klayout"}
 KINDS = {"netlist", "gds"}
+DIFFICULTIES = {"introductory", "intermediate", "advanced", "capstone"}
 
 
 def _required_string(data: dict[str, Any], name: str, source: Path) -> str:
@@ -42,6 +42,33 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
     summary = _required_string(manifest, "summary", source)
     track = _required_string(manifest, "track", source)
     difficulty = _required_string(manifest, "difficulty", source)
+    if difficulty not in DIFFICULTIES:
+        raise ValueError(f"{source}: difficulty must be one of {sorted(DIFFICULTIES)}")
+    verification_version = manifest.get("verification_version")
+    if (
+        not isinstance(verification_version, int)
+        or isinstance(verification_version, bool)
+        or verification_version < 1
+    ):
+        raise ValueError(f"{source}: verification_version must be a positive integer")
+    curriculum_order = manifest.get("curriculum_order", 0)
+    if (
+        not isinstance(curriculum_order, int)
+        or isinstance(curriculum_order, bool)
+        or curriculum_order < 0
+    ):
+        raise ValueError(f"{source}: curriculum_order must be a non-negative integer")
+    prerequisites = manifest.get("prerequisites", [])
+    retired_slugs = manifest.get("retired_slugs", [])
+    for name, values in (("prerequisites", prerequisites), ("retired_slugs", retired_slugs)):
+        if not isinstance(values, list) or not all(
+            isinstance(value, str) and SLUG.fullmatch(value) for value in values
+        ):
+            raise ValueError(f"{source}: {name} must contain valid slugs")
+        if len(values) != len(set(values)):
+            raise ValueError(f"{source}: {name} must not contain duplicates")
+    if slug in prerequisites or slug in retired_slugs:
+        raise ValueError(f"{source}: a challenge cannot reference its own slug")
     interface = manifest.get("interface")
     if not isinstance(interface, dict):
         raise ValueError(f"{source}: interface must be an object")
@@ -87,11 +114,13 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         reference = judge_config.get("reference_netlist")
         if not isinstance(reference, str) or not (path / reference).is_file():
             raise ValueError(f"{source}: private LVS reference is missing")
-    if backend == "profile":
-        if not isinstance(judge_config.get("profile"), str):
-            raise ValueError(f"{source}: profile backend requires judge_config.profile")
-        if judge_config.get("family") not in PROFILE_LIMITS:
-            raise ValueError(f"{source}: profile backend has an invalid family")
+        post_layout = judge_config.get("post_layout_definition")
+        if not isinstance(post_layout, str) or not (path / post_layout).is_file():
+            raise ValueError(f"{source}: private post-layout definition is missing")
+    if backend == "characterization":
+        definition = judge_config.get("definition")
+        if not isinstance(definition, str) or not (path / definition).is_file():
+            raise ValueError(f"{source}: characterization definition is missing")
 
     return slug, {
         "title": title,
@@ -111,6 +140,11 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         "category": str(manifest.get("category", track)),
         "track": track,
         "difficulty": difficulty,
+        "verification_version": verification_version,
+        "is_ranked": bool(manifest.get("is_ranked", True)),
+        "curriculum_order": curriculum_order,
+        "prerequisites": prerequisites,
+        "retired_slugs": retired_slugs,
         "assets": assets,
         "score_unit": str(manifest.get("score_unit", "points")),
         "lower_is_better": bool(manifest.get("lower_is_better", False)),
@@ -128,6 +162,14 @@ def seed_challenges(session: Session, challenges_path: str | Path) -> None:
     slugs = [slug for slug, _ in packages]
     if len(slugs) != len(set(slugs)):
         raise ValueError("challenge manifests contain duplicate slugs")
+    retired = [retired for _, values in packages for retired in values["retired_slugs"]]
+    if len(retired) != len(set(retired)) or set(retired) & set(slugs):
+        raise ValueError("active and retired challenge slugs must be globally unique")
+    known_slugs = set(slugs) | set(retired)
+    for slug, values in packages:
+        missing = set(values["prerequisites"]) - known_slugs
+        if missing:
+            raise ValueError(f"challenge {slug} has unknown prerequisites: {sorted(missing)}")
     for slug, values in packages:
         challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
         if challenge is None:

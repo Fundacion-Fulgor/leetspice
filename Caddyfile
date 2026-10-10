@@ -1,0 +1,27 @@
+{$DOMAIN:localhost} {
+	# Compression for text, html, css, json
+	encode gzip zstd
+
+	# Cache static assets for fast delivery and low backend load
+	@static path /static/*
+	header @static Cache-Control "public, max-age=86400, stale-while-revalidate=604800"
+
+	# Reverse proxy to the web application
+	reverse_proxy web:8000
+
+	# Security headers
+	header {
+		# Prevent clickjacking
+		X-Frame-Options "DENY"
+		# Prevent MIME-type sniffing
+		X-Content-Type-Options "nosniff"
+		# XSS protection (legacy browsers)
+		X-XSS-Protection "1; mode=block"
+		# Referrer policy
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# HSTS - enforce HTTPS for 1 year
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Remove server identifier
+		-Server
+	}
+}

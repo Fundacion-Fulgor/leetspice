@@ -8,13 +8,14 @@ from sqlalchemy import JSON, Float, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from leetspice.judge import (
-    CaceJudge,
+    CharacterizationJudge,
     JudgeResult,
     LayoutJudge,
     MockJudge,
     NgspiceJudge,
     validate_netlist,
 )
+from leetspice.judge.validator import validate_structure
 from leetspice.worker import configured_backend, process_one
 
 VALID_INVERTER = """* a small CMOS inverter
@@ -34,6 +35,18 @@ def test_validate_netlist_accepts_comments_continuations_and_case() -> None:
 def test_validate_netlist_accepts_ihp_gate_count_parameter() -> None:
     netlist = VALID_INVERTER.replace("W=1u L=180n", "W=1u L=130n ng=2")
     assert validate_netlist(netlist, "inverter", ["in", "out", "vdd", "vss"]) is None
+
+
+def test_validate_netlist_accepts_allowlisted_ihp_hbt() -> None:
+    netlist = ".subckt bipolar c b e bn\nXQ c b e bn npn13G2 Nx=2\n.ends bipolar\n"
+    assert validate_netlist(netlist, "bipolar", ["c", "b", "e", "bn"]) is None
+
+
+@pytest.mark.parametrize("parameter", ["W=1u", "Nx=0.5", "area=2"])
+def test_validate_netlist_rejects_invalid_hbt_parameters(parameter: str) -> None:
+    netlist = f".subckt bipolar c b e bn\nXQ c b e bn npn13G2 {parameter}\n.ends bipolar\n"
+    with pytest.raises(ValueError, match="invalid MOS parameter"):
+        validate_netlist(netlist, "bipolar", ["c", "b", "e", "bn"])
 
 
 @pytest.mark.parametrize(
@@ -86,6 +99,24 @@ def test_validate_netlist_enforces_device_and_size_limits() -> None:
         )
     with pytest.raises(ValueError, match="65536 bytes"):
         validate_netlist("*" + "x" * 65536, "inverter", ["in", "out", "vdd", "vss"])
+
+
+def test_validate_structure_enforces_declared_device_rules() -> None:
+    one_nmos = ".subckt device d g s b\nX1 d g s b sg13_lv_nmos W=1u L=130n\n.ends\n"
+    validate_structure(
+        one_nmos,
+        {
+            "exact_device_count": 1,
+            "allowed_kinds": ["X"],
+            "allowed_models": ["sg13_lv_nmos"],
+        },
+    )
+    with pytest.raises(ValueError, match="exactly 2"):
+        validate_structure(one_nmos, {"exact_device_count": 2})
+    with pytest.raises(ValueError, match="device type"):
+        validate_structure(one_nmos, {"allowed_kinds": ["R"]})
+    with pytest.raises(ValueError, match="MOS model"):
+        validate_structure(one_nmos, {"allowed_models": ["sg13_lv_pmos"]})
 
 
 def test_mock_judge_is_deterministic_and_serializable() -> None:
@@ -245,34 +276,42 @@ def test_backend_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LEETSPICE_JUDGE_BACKEND")
     monkeypatch.setenv("RUNNER_BACKEND", "ngspice")
     assert isinstance(configured_backend(), NgspiceJudge)
-    assert isinstance(configured_backend("cace"), CaceJudge)
     assert isinstance(configured_backend("ngspice"), NgspiceJudge)
     with pytest.raises(ValueError, match="unknown"):
         configured_backend("other")
 
 
-def test_cace_collects_pvt_measurements(tmp_path: Path) -> None:
-    run = tmp_path / "RUN_test" / "parameters" / "timing" / "run_0"
-    run.mkdir(parents=True)
-    (run / "conditions.yaml").write_text("corner: ss\ntemperature: 125\n", encoding="utf-8")
-    (run / "timing_0.data").write_text(
-        "40e-12 37e-12 55e-12 52e-12 -2.13e-6 1e-6 1.2\n",
-        encoding="utf-8",
-    )
+def test_worker_dispatches_characterization_challenge(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed = {}
 
-    measurements = CaceJudge._collect(tmp_path)
+    class ChallengeJob:
+        netlist = VALID_INVERTER
+        expected_subckt = "inverter"
+        expected_pins = ["in", "out", "vdd", "vss"]
+        submission_kind = "netlist"
 
-    assert len(measurements) == 7
-    assert measurements[0].name == "tphl_ss_125C"
-    assert measurements[0].value == 40.0
-    assert measurements[4].value == 2.13
-    assert all(measurement.passed for measurement in measurements)
+        class challenge:
+            judge_backend = "characterization"
+            fixture_path = "inverter"
+            judge_config = {"definition": "judge/definition.yaml"}
 
+    def fake_judge(self, netlist, subckt, pins, fixture_path, config):
+        observed.update(
+            netlist=netlist,
+            subckt=subckt,
+            pins=pins,
+            fixture_path=fixture_path,
+            config=config,
+        )
+        return JudgeResult(True, 1.0)
 
-def test_cace_schematic_embeds_validated_submission() -> None:
-    schematic = CaceJudge._schematic(VALID_INVERTER)
-    assert VALID_INVERTER.strip() in schematic
-    assert "devices/code_shown.sym" in schematic
+    monkeypatch.setattr(CharacterizationJudge, "judge", fake_judge)
+    from leetspice.worker import _judge
+
+    result, backend_name = _judge(ChallengeJob(), MockJudge())
+    assert result.accepted
+    assert backend_name == "CharacterizationJudge"
+    assert observed["fixture_path"] == "inverter"
 
 
 def test_layout_judge_requires_lvs_success_marker(
@@ -282,39 +321,22 @@ def test_layout_judge_requires_lvs_success_marker(
     reference = challenge / "reference"
     reference.mkdir(parents=True)
     (reference / "inverter.spice").write_text(".subckt inverter in out vdd vss\n.ends\n")
-    pdk = tmp_path / "pdk" / "ihp-sg13g2" / "libs.tech" / "klayout" / "tech"
-    for runner in (pdk / "drc" / "run_drc.py", pdk / "lvs" / "run_lvs.py"):
-        runner.parent.mkdir(parents=True, exist_ok=True)
-        runner.write_text("# runner\n")
-    macro = Path("/app/scripts/inspect-layout.rb")
-    original_is_file = Path.is_file
+    pdk_root = tmp_path / "pdk"
+    magicrc = pdk_root / "ihp-sg13g2/libs.tech/magic/ihp-sg13g2.magicrc"
+    setup = pdk_root / "ihp-sg13g2/libs.tech/netgen/ihp-sg13g2_setup.tcl"
+    magicrc.parent.mkdir(parents=True)
+    setup.parent.mkdir(parents=True)
+    magicrc.write_text("rc")
+    setup.write_text("setup")
+    monkeypatch.setattr("leetspice.judge.layout.LayoutJudge._inspect", lambda *_args: (12.5, 1))
+    monkeypatch.setattr("leetspice.judge.layout.MagicRunner.drc", lambda *_args: 0)
+    extracted = tmp_path / "extracted.spice"
+    extracted.write_text(".subckt inverter in out vdd vss\n.ends inverter\n")
+    monkeypatch.setattr("leetspice.judge.layout.MagicRunner.extract_lvs", lambda *_args: extracted)
     monkeypatch.setattr(
-        Path, "is_file", lambda self: True if self == macro else original_is_file(self)
+        "leetspice.judge.layout.NetgenRunner.lvs",
+        lambda *_args: (_ for _ in ()).throw(ValueError("mismatch")),
     )
-
-    def fake_run(
-        command: list[str], *_args: object, **_kwargs: object
-    ) -> subprocess.CompletedProcess:
-        values = {part.split("=", 1)[0]: part.split("=", 1)[1] for part in command if "=" in part}
-        if "output" in values:
-            Path(values["output"]).write_text("top_cell: inverter\narea_um2: 12.5\ncell_count: 1\n")
-        elif any("run_drc.py" in part for part in command):
-            run_dir = Path(
-                next(part.split("=", 1)[1] for part in command if part.startswith("--run_dir="))
-            )
-            run_dir.mkdir()
-            (run_dir / "result.lyrdb").write_text("result")
-        else:
-            run_dir = Path(
-                next(part.split("=", 1)[1] for part in command if part.startswith("--run_dir="))
-            )
-            run_dir.mkdir()
-            (run_dir / "result.lvsdb").write_text("result")
-            (run_dir / "result_extracted.cir").write_text("result")
-            (run_dir / "result.log").write_text("ERROR : Netlists don't match")
-        return subprocess.CompletedProcess(command, 0, "")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
     result = LayoutJudge(challenges_path=tmp_path / "challenges", pdk_root=tmp_path / "pdk").judge(
         b"gds",
         "inverter",
@@ -372,3 +394,10 @@ def test_layout_judge_reports_missing_pins_first(tmp_path: Path) -> None:
         )
         == "LVS mismatch; missing top-level pins: vss"
     )
+
+
+def test_layout_judge_normalizes_pex_pin_order() -> None:
+    netlist = ".subckt inverter vdd in out vss\nX1 out in vss vss nmos\n.ends\n"
+    assert LayoutJudge._normalize_pex_pins(
+        netlist, "inverter", ["in", "out", "vdd", "vss"]
+    ).startswith(".subckt inverter in out vdd vss\n")

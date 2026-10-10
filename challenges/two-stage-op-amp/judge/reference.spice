@@ -1,0 +1,10 @@
+.subckt two_stage_op_amp inp inn out vdd vss
+XINP n1 inp tail vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+XINN first inn tail vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+XLP n1 n1 vdd vdd sg13_lv_pmos W=12u L=0.5u ng=1 m=1
+XLN first n1 vdd vdd sg13_lv_pmos W=12u L=0.5u ng=1 m=1
+XSECOND out first vss vss sg13_lv_nmos W=20u L=0.5u ng=1 m=1
+RLOAD vdd out 20k
+RTAIL tail vss 8k
+CC first out 1p
+.ends two_stage_op_amp

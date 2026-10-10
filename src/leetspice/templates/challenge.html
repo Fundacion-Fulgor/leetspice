@@ -3,33 +3,123 @@
 {% block content %}
 <section class="challenge-title">
   <div><p class="eyebrow">CH-{{ "%02d"|format(challenge.id) }} / ACTIVE BENCH</p><h1>{{ challenge.title }}</h1></div>
-  <div class="metric"><span>OBJECTIVE</span><strong>{% if challenge.lower_is_better %}MIN{% else %}MAX{% endif %} {{ challenge.score_unit }}</strong></div>
+  <div class="metric"><span>OBJECTIVE</span><strong>{% if challenge.is_ranked %}{% if challenge.lower_is_better %}MIN{% else %}MAX{% endif %} {{ challenge.score_unit }}{% else %}GUIDED LAB{% endif %}</strong></div>
 </section>
-<div class="workspace">
-  <section>
-    <div class="panel brief"><h2>Design brief</h2><p>{{ challenge.description }}</p><dl><dt>Track</dt><dd>{{ challenge.track }} · {{ challenge.difficulty }}</dd><dt>Verification</dt><dd>{% if challenge.judge_backend == 'profile' %}Structural profile{% elif challenge.judge_backend == 'klayout' %}KLayout DRC/LVS{% else %}CACE PVT{% endif %}</dd><dt>{% if challenge.submission_kind == 'gds' %}Required top cell{% else %}Required subcircuit{% endif %}</dt><dd>{{ challenge.expected_subckt }}</dd><dt>{% if challenge.submission_kind == 'gds' %}Required pins{% else %}Pin order{% endif %}</dt><dd>{{ challenge.expected_pins|join(' · ') }}</dd></dl>{% if challenge.assets %}<div class="challenge-assets"><span>DESIGN FILES</span>{% for asset in challenge.assets %}<a href="/challenges/{{ challenge.slug }}/assets/{{ asset.id }}">{{ asset.label }} →</a>{% endfor %}</div>{% endif %}</div>
-    <div class="panel leaderboard-preview">
+{% if is_preview and current_user.is_admin %}
+<div class="alert alert-info" style="background-color: #d1ecf1; color: #0c5460; padding: 1rem; margin-bottom: 1rem; border: 1px solid #bee5eb; border-radius: 0.25rem;">
+  <strong><i class="fa-solid fa-eye"></i> Preview Mode (Admin Only)</strong><br>
+  You are previewing a new challenge. You can test the simulation below. If everything is correct, click <b>Confirm & Save to DB</b> at the bottom of the page.
+</div>
+{% elif is_draft and current_user.is_admin %}
+<div class="alert alert-warning" style="background-color: #fff3cd; color: #856404; padding: 1rem; margin-bottom: 1rem; border: 1px solid #ffeeba; border-radius: 0.25rem;">
+  <strong><i class="fa-solid fa-lock"></i> Draft Challenge (Admin Only)</strong><br>
+  This challenge is currently inactive and hidden from students. You can use this page to test the simulation. 
+  Once you verify everything works, you can publish it from the <a href="/admin/challenge/edit?id={{ challenge.id }}" style="font-weight: bold; text-decoration: underline;">admin panel</a>.
+</div>
+{% endif %}
+{% if not prerequisites_met and current_user %}
+<div class="prereq-banner">
+  <strong>Prerequisites required</strong>
+  Complete the following challenges before submitting a design:
+  <ul>
+    {% for prereq in missing_prerequisites %}
+    <li><a href="/challenges/{{ prereq.slug }}">{{ prereq.title }}</a> <span class="difficulty-badge difficulty-{{ prereq.difficulty }}">{{ prereq.difficulty }}</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+<div class="workspace challenge-workspace">
+  <section class="challenge-reading">
+    <div class="panel brief">
+      <div class="panel-head"><h2>Design brief</h2><span>VERIFICATION v{{ challenge.verification_version }}</span></div>
+      <p class="brief-summary">{{ challenge.summary }}</p>
+      <dl class="brief-facts">
+        <div><dt>Track</dt><dd>{{ challenge.track }} · {{ challenge.difficulty }}</dd></div>
+        <div><dt>Verification</dt><dd>{% if challenge.judge_backend == 'klayout' %}Magic DRC · Netgen LVS · PEX · ngspice{% else %}Direct ngspice{% endif %}</dd></div>
+        <div><dt>{% if challenge.submission_kind == 'gds' %}Top cell{% else %}Subcircuit{% endif %}</dt><dd><code>{{ challenge.expected_subckt }}</code></dd></div>
+        <div><dt>Pin order</dt><dd><code>{{ challenge.expected_pins|join(' · ') }}</code></dd></div>
+      </dl>
+      <details class="full-brief">
+        <summary><span>Full specification</span><small>Requirements, scoring, conditions, and design notes</small></summary>
+        <article class="markdown-body">{{ description_html }}</article>
+      </details>
+      {% if challenge.assets %}<div class="challenge-assets"><span>DESIGN FILES</span>{% for asset in challenge.assets %}<a href="/challenges/{{ challenge.slug }}/assets/{{ asset.id }}">{{ asset.label }} →</a>{% endfor %}</div>{% endif %}
+    </div>
+    {% if challenge.is_ranked %}<div class="panel leaderboard-preview">
       <div class="panel-head"><h2>Leaderboard</h2><a href="/challenges/{{ challenge.slug }}/leaderboard">Full board →</a></div>
       <p class="scholarship-note">LeetSpice rankings are the gateway to Fundación Fulgor scholarships. The highest-ranking students automatically earn scholarships.</p>
       <ol>{% for user, score in leaders[:5] %}<li><span>{{ user.display_name }}</span><strong>{{ "%.4g"|format(score) }} {{ challenge.score_unit }}</strong></li>{% else %}<li class="empty">No accepted designs yet. Set the reference.</li>{% endfor %}</ol>
-    </div>
+    </div>{% endif %}
   </section>
-  <section class="panel editor-panel">
+  <section class="panel editor-panel challenge-submit">
     <div class="panel-head"><h2>{% if challenge.submission_kind == 'gds' %}Layout input{% else %}Netlist input{% endif %}</h2><span>{% if challenge.submission_kind == 'gds' %}BINARY / GDSII{% else %}TEXT / SPICE{% endif %}</span></div>
     {% if error %}<div class="alert">{{ error }}</div>{% endif %}
     {% if current_user %}
+      {% if prerequisites_met %}
     <form method="post" action="/challenges/{{ challenge.slug }}/submit"{% if challenge.submission_kind == 'gds' %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% if challenge.submission_kind == 'gds' %}
-      <label class="file-drop"><span>GDSII STREAM FILE</span><input type="file" name="layout" accept=".gds" required><strong>Select .gds layout</strong><small>Maximum {{ challenge.submission_config.maximum_bytes // 1048576 }} MiB. Raw GDSII only; archives are not accepted.</small></label>
+      <label class="file-drop" id="gds-dropzone" style="transition: all 0.2s;">
+        <span>GDSII STREAM FILE</span>
+        <input type="file" name="layout" accept=".gds" required id="gds-input" onchange="
+          var emptyState = document.getElementById('gds-state-empty');
+          var selectedState = document.getElementById('gds-state-selected');
+          var filename = document.getElementById('gds-filename');
+          var dropzone = document.getElementById('gds-dropzone');
+          
+          if(this.files && this.files.length > 0) {
+            emptyState.style.display = 'none';
+            selectedState.style.display = 'block';
+            filename.textContent = this.files[0].name;
+            dropzone.style.borderColor = '#99cc00';
+            dropzone.style.backgroundColor = '#f4fae6';
+          } else {
+            emptyState.style.display = 'block';
+            selectedState.style.display = 'none';
+            filename.textContent = '';
+            dropzone.style.borderColor = '';
+            dropzone.style.backgroundColor = '';
+          }
+        ">
+        <div id="gds-state-empty">
+          <strong>Select .gds layout</strong>
+          <small>Maximum {{ challenge.submission_config.maximum_bytes // 1048576 }} MiB. Raw GDSII only; archives are not accepted.</small>
+        </div>
+        <div id="gds-state-selected" style="display: none; text-align: center;">
+          <strong style="color: #6a8e00; display: block; margin-bottom: 0.5rem;">File ready to verify</strong>
+          <code id="gds-filename" style="display: inline-block; background: #494949; color: #fff; padding: 0.25rem 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.9em; font-weight: bold;"></code>
+          <small style="display: block; opacity: 0.8; text-decoration: underline; color: #555;">Click here to change file</small>
+        </div>
+      </label>
       {% else %}
       <textarea name="netlist" spellcheck="false" aria-label="SPICE netlist" required>{{ submitted_netlist|default(challenge.starter_netlist, true) }}</textarea>
       {% endif %}
       <div class="submit-row"><small>Input is submitted exactly as provided.</small><button class="primary">Queue verification</button></div>
     </form>
+      {% else %}
+    {% if challenge.submission_kind == 'netlist' %}<pre>{{ challenge.starter_netlist }}</pre>{% endif %}
+    <div class="submit-row"><small>Complete the prerequisites above to unlock submissions.</small><button class="primary" disabled>Queue verification</button></div>
+      {% endif %}
     {% else %}
       {% if challenge.submission_kind == 'netlist' %}<pre>{{ challenge.starter_netlist }}</pre>{% endif %}<p class="gate"><a href="/login">Log in</a> or <a href="/register">create an account</a> to submit a design.</p>
     {% endif %}
   </section>
 </div>
+
+{% if is_preview and current_user.is_admin %}
+<div style="margin-top: 2rem; padding: 2rem; background: #f8f9fa; text-align: center; border: 2px solid #343a40; border-radius: 8px;">
+  <h3 style="margin-top: 0;">Ready to publish?</h3>
+  <p style="color: #6c757d; margin-bottom: 1.5rem;">If the simulation above worked correctly, you can confirm and save this challenge.</p>
+  <form method="post" style="display:inline-block;">
+     <input type="hidden" name="slug" value="{{ challenge.slug }}">
+     <button type="submit" formaction="/admin/create-challenge-cancel" style="background: #e9ecef; color: #495057; padding: 1rem 2rem; font-size: 1.1rem; cursor: pointer; border: 1px solid #ced4da; margin-right: 1rem; border-radius: 4px; font-weight: bold;">
+       <i class="fa-solid fa-arrow-left"></i> Back to Edit
+     </button>
+     <button type="submit" formaction="/admin/create-challenge-confirm" style="background: #dbff3d; color: #111815; padding: 1rem 2rem; font-size: 1.1rem; cursor: pointer; border: 1px solid #111815; border-radius: 4px; font-weight: bold;">
+       <i class="fa-solid fa-check"></i> Confirm &amp; Save to DB
+     </button>
+  </form>
+</div>
+{% endif %}
+
 {% endblock %}

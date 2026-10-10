@@ -20,6 +20,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(80))
     password_hash: Mapped[str] = mapped_column(String(255))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     submissions: Mapped[list["Submission"]] = relationship(back_populates="user")
@@ -37,31 +38,41 @@ class Challenge(Base):
     expected_pins: Mapped[list[str]] = mapped_column(JSON, default=list)
     starter_netlist: Mapped[str] = mapped_column(Text, default="")
     submission_kind: Mapped[str] = mapped_column(String(30), default="netlist")
-    judge_backend: Mapped[str] = mapped_column(String(80), default="cace")
+    judge_backend: Mapped[str] = mapped_column(String(80), default="ngspice")
     submission_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     judge_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     fixture_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     category: Mapped[str] = mapped_column(String(80), default="General", server_default="General")
     track: Mapped[str] = mapped_column(String(80), default="General", server_default="General")
     difficulty: Mapped[str] = mapped_column(String(50), default="medium", server_default="medium")
+    verification_version: Mapped[int] = mapped_column(default=1, server_default="1")
+    is_ranked: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    curriculum_order: Mapped[int] = mapped_column(default=0, server_default="0")
+    prerequisites: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    retired_slugs: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     assets: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     score_unit: Mapped[str] = mapped_column(String(30), default="points")
     lower_is_better: Mapped[bool] = mapped_column(Boolean, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    submissions: Mapped[list["Submission"]] = relationship(back_populates="challenge")
+    submissions: Mapped[list["Submission"]] = relationship(
+        back_populates="challenge", cascade="all, delete-orphan"
+    )
 
 
 class Submission(Base):
     __tablename__ = "submissions"
     __table_args__ = (
         Index("ix_submissions_challenge_status_score", "challenge_id", "status", "score"),
+        Index("ix_submissions_user_created", "user_id", "created_at"),
+        Index("ix_submissions_user_status", "user_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     challenge_id: Mapped[int] = mapped_column(ForeignKey("challenges.id"), index=True)
+    verification_version: Mapped[int] = mapped_column(default=1, server_default="1")
     submission_kind: Mapped[str] = mapped_column(String(30), default="netlist")
     netlist: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload_binary: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)

@@ -1,0 +1,5 @@
+.subckt supply_independent_bias vdd vss out
+XNP out out vss vss sg13_lv_nmos W=4u L=0.5u ng=1 m=1
+XPP out out vdd vdd sg13_lv_pmos W=8u L=0.5u ng=1 m=1
+RSET out vss 40k
+.ends supply_independent_bias

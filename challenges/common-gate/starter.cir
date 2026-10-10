@@ -1,4 +1,4 @@
 .subckt common_gate in out bias vdd vss
-XMN out bias in vss sg13_lv_nmos W=4u L=0.26u ng=1 m=1
+XMN out bias in vss sg13_lv_nmos W=1u L=0.5u ng=1 m=1
 RLOAD vdd out 20k
 .ends common_gate

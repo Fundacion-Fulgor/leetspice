@@ -1,0 +1,9 @@
+.subckt current_starved_vco vctrl out vdd vss
+XSTARVE n1 vctrl vss vss sg13_lv_nmos W=2u L=0.26u ng=1 m=1
+X1 n2 out n1 vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
+X1P n2 out vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1
+X2 n3 n2 n1 vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
+X2P n3 n2 vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1
+X3 out n3 n1 vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
+X3P out n3 vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1
+.ends current_starved_vco

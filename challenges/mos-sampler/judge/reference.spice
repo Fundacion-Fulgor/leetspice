@@ -1,0 +1,7 @@
+.subckt mos_sampler in out clk vdd vss
+XNS out clk in vss sg13_lv_nmos W=4u L=0.13u ng=1 m=1
+XPS out clkb in vdd sg13_lv_pmos W=8u L=0.13u ng=1 m=1
+XINV clkb clk vss vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
+XINVP clkb clk vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1
+CHOLD out vss 100f
+.ends mos_sampler

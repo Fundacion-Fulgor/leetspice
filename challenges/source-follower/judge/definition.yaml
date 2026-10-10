@@ -1,0 +1,48 @@
+version: 2
+conditions:
+  corner:
+    - tt
+    - ss
+    - ff
+  temperature:
+    - -40
+    - 27
+    - 125
+tests:
+  - name: characterization
+    template: judge/tests/functional.cir
+    timeout: 30
+    sweep:
+      corner: all
+      temperature: all
+    measurements:
+      - name: output_voltage
+        unit: V
+        minimum: 0.20
+        maximum: 0.50
+      - name: supply_current
+        unit: A
+        maximum: 0.001
+      - name: ac_gain
+        unit: V/V
+        minimum: 0.72
+      - name: bandwidth
+        unit: Hz
+        minimum: 80000000.0
+score:
+  objectives:
+    - measurement: ac_gain
+      direction: maximize
+      aggregation: minimum
+      normalization: 0.85
+      weight: 2.0
+    - measurement: bandwidth
+      direction: maximize
+      aggregation: minimum
+      normalization: 100000000.0
+      weight: 1.0
+    - measurement: supply_current
+      direction: minimize
+      aggregation: maximum
+      normalization: 0.0001
+      weight: 1.5

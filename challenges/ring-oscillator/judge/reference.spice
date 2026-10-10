@@ -1,0 +1,8 @@
+.subckt ring_oscillator out vdd vss
+X1 n1 out vss vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
+X1P n1 out vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1
+X2 n2 n1 vss vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
+X2P n2 n1 vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1
+X3 out n2 vss vss sg13_lv_nmos W=1u L=0.13u ng=1 m=1
+X3P out n2 vdd vdd sg13_lv_pmos W=2u L=0.13u ng=1 m=1
+.ends ring_oscillator

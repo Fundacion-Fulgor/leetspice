@@ -1,0 +1,7 @@
+.subckt ota5 inp inn out bias vdd vss
+X1 mirror inp tail vss sg13_lv_nmos W=4u L=0.5u ng=2 m=1
+X2 out inn tail vss sg13_lv_nmos W=4u L=0.5u ng=2 m=1
+X3 tail bias vss vss sg13_lv_nmos W=8u L=0.5u ng=4 m=1
+X4 mirror mirror vdd vdd sg13_lv_pmos W=8u L=0.5u ng=4 m=1
+X5 out mirror vdd vdd sg13_lv_pmos W=8u L=0.5u ng=4 m=1
+.ends ota5

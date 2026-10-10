@@ -1,0 +1,30 @@
+version: 2
+execution: {maximum_runs: 3, total_timeout: 60}
+conditions:
+  corner: [tt]
+tests:
+- name: cold
+  template: judge/tests/cold.cir
+  timeout: 20
+  sweep: {corner: all}
+  measurements:
+  - {name: cold_current, unit: A, minimum: 2.0e-6, maximum: 8.0e-6}
+  - {name: cold_supply_current, unit: A, minimum: 1.0e-6, maximum: 5.0e-5}
+- name: nominal
+  template: judge/tests/nominal.cir
+  timeout: 20
+  sweep: {corner: all}
+  measurements:
+  - {name: nominal_current, unit: A, minimum: 1.0e-5, maximum: 2.0e-5}
+  - {name: nominal_supply_current, unit: A, minimum: 1.0e-5, maximum: 8.0e-5}
+- name: hot
+  template: judge/tests/hot.cir
+  timeout: 20
+  sweep: {corner: all}
+  measurements:
+  - {name: hot_current, unit: A, minimum: 3.0e-5, maximum: 5.5e-5}
+  - {name: hot_supply_current, unit: A, minimum: 3.0e-5, maximum: 2.0e-4}
+score:
+  objectives:
+  - {measurement: nominal_current, direction: target, aggregation: mean, normalization: 5.0e-6, target: 1.5e-5}
+  - {measurement: hot_supply_current, direction: minimize, aggregation: maximum, normalization: 0.00015}

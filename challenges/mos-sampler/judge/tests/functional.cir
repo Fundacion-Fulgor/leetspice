@@ -1,0 +1,16 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+VDD vdd 0 1.2
+VIN in 0 0.6
+VCLK clk 0 1.2
+XDUT in out clk vdd 0 mos_sampler
+.control
+op
+let sampled_voltage=v(out)
+let sample_error=abs(v(out)-v(in))
+echo sampled_voltage $$&sampled_voltage > results.data
+echo sample_error $$&sample_error >> results.data
+quit
+.endc
+.end

@@ -1,0 +1,17 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+VIREF iref 0 0.75
+VOUT out 0 1.0
+XDUT iref out 0 current_mirror
+.control
+op
+let reference_current=abs(i(VIREF))
+let output_current=abs(i(VOUT))
+let current_error=abs(output_current-reference_current)/max(reference_current,1e-15)
+echo reference_current $$&reference_current > results.data
+echo output_current $$&output_current >> results.data
+echo current_error $$&current_error >> results.data
+quit
+.endc
+.end

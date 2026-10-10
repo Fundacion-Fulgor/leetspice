@@ -14,6 +14,7 @@ class Measurement:
     value: float
     unit: str = ""
     passed: bool = True
+    conditions: dict[str, str | float | int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

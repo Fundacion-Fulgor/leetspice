@@ -1,0 +1,1190 @@
+"""SQLAdmin panel with session-based authentication, statistics, and leaderboard."""
+
+from html import escape
+import anyio
+if not hasattr(anyio, "from_thread"):
+    from anyio import from_thread
+    anyio.from_thread = from_thread
+
+from sqladmin import Admin, BaseView, ModelView, expose
+from sqladmin.authentication import AuthenticationBackend
+from sqlalchemy import func, select
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse, Response
+
+from .auth import read_session
+from .config import Settings
+from .db import SessionLocal
+from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
+from .models import Challenge, Submission, User
+
+
+# ---------------------------------------------------------------------------
+# Shared page layout
+# ---------------------------------------------------------------------------
+
+_CSS = """\
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; }
+.admin-header { background: linear-gradient(135deg, #111815 0%, #1a2318 100%); color: #dbff3d; padding: 30px 0; }
+.stat-card { background: white; border-radius: 12px; padding: 24px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.stat-card .number { font-size: 36px; font-weight: 800; color: #111815; }
+.stat-card .label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-top: 4px; }
+.data-table { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); overflow: hidden; }
+.data-table table { margin: 0; }
+.data-table thead th { background: #111815; color: #dbff3d; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 14px 12px; border: none; white-space: nowrap; }
+.data-table tbody td { padding: 12px; border-bottom: 1px solid #eee; font-size: 13px; vertical-align: middle; }
+.data-table tbody tr:hover { background: #f8fff0; }
+.back-link { color: #dbff3d; text-decoration: none; font-size: 13px; }
+.back-link:hover { color: #fff; }
+.nav-pills .nav-link { color: #555; font-size: 13px; font-weight: 600; }
+.nav-pills .nav-link.active { background: #111815; color: #dbff3d; }
+.rank-1 { color: #d4a017; font-weight: 800; }
+.rank-2 { color: #8a8a8a; font-weight: 700; }
+.rank-3 { color: #b87333; font-weight: 700; }
+.medal { font-size: 18px; }
+.section-title { padding: 20px 20px 10px; border-bottom: 1px solid #eee; }
+.section-title h5 { margin: 0; font-weight: 700; }
+.detail-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; margin: 1px; }
+.detail-badge.intro { background: #e8f5e9; color: #2e7d32; }
+.detail-badge.inter { background: #fff8e1; color: #ef6c00; }
+.detail-badge.adv { background: #fce4ec; color: #c62828; }
+.detail-badge.cap { background: #f3e5f5; color: #6a1b9a; }
+.activity-item { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.activity-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.activity-dot.accepted { background: #2e7d32; }
+.activity-dot.failed, .activity-dot.rejected { background: #c62828; }
+.activity-dot.queued, .activity-dot.running { background: #e2a723; }
+"""
+
+
+def _page(title: str, icon: str, subtitle: str, body: str) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title)} \u00b7 LeetSpice Admin</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>{_CSS}</style>
+</head>
+<body>
+<div class="admin-header">
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <a href="/admin" class="back-link"><i class="fa-solid fa-arrow-left"></i> Back to Admin</a>
+      <span style="font-size:11px;letter-spacing:2px;opacity:.6">LEETSPICE ADMIN</span>
+    </div>
+    <h1 style="font-weight:800;letter-spacing:-1px;margin:0"><i class="fa-solid fa-{icon}"></i> {escape(title)}</h1>
+    <p style="opacity:.7;margin:8px 0 0">{escape(subtitle)}</p>
+  </div>
+</div>
+<div class="container py-4">{body}</div>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+
+class AdminAuth(AuthenticationBackend):
+    def __init__(self, settings: Settings) -> None:
+        super().__init__(secret_key=settings.secret_key)
+        self._settings = settings
+
+    async def login(self, request: Request) -> bool:
+        return False
+
+    async def logout(self, request: Request) -> bool:
+        return False
+
+    async def authenticate(self, request: Request) -> bool | Response:
+        payload = read_session(request, self._settings)
+        user_id = payload.get("user_id")
+        if not user_id:
+            return RedirectResponse(request.url_for("login_form"), status_code=302)
+        with SessionLocal() as session:
+            user = session.get(User, user_id)
+            if not user or not user.is_admin:
+                return RedirectResponse(request.url_for("login_form"), status_code=302)
+        return True
+
+
+# ---------------------------------------------------------------------------
+# Model views
+# ---------------------------------------------------------------------------
+
+class UserAdmin(ModelView, model=User):
+    name = "User"
+    name_plural = "Users"
+    icon = "fa-solid fa-user"
+    column_list = [User.id, User.email, User.display_name, User.is_admin, User.created_at]
+    column_searchable_list = [User.email, User.display_name]
+    column_sortable_list = [User.id, User.email, User.display_name, User.is_admin, User.created_at]
+    form_excluded_columns = [User.password_hash, User.submissions]
+    can_create = False
+    can_delete = True
+
+
+class ChallengeAdmin(ModelView, model=Challenge):
+    name = "Challenge"
+    name_plural = "Challenges"
+    icon = "fa-solid fa-bolt"
+    column_list = [
+        Challenge.id, Challenge.slug, Challenge.title, Challenge.track,
+        Challenge.difficulty, Challenge.is_active, Challenge.is_ranked,
+        Challenge.curriculum_order,
+    ]
+    column_searchable_list = [Challenge.slug, Challenge.title, Challenge.track]
+    column_sortable_list = [
+        Challenge.id, Challenge.slug, Challenge.title, Challenge.track,
+        Challenge.difficulty, Challenge.is_active, Challenge.curriculum_order,
+    ]
+    column_default_sort = [(Challenge.curriculum_order, False), (Challenge.id, False)]
+    form_excluded_columns = [Challenge.submissions]
+    can_create = False
+    can_edit = True
+    can_delete = True
+
+
+class SubmissionAdmin(ModelView, model=Submission):
+    name = "Submission"
+    name_plural = "Submissions"
+    icon = "fa-solid fa-paper-plane"
+    column_list = [
+        Submission.id, Submission.user_id, Submission.challenge_id,
+        Submission.status, Submission.score, Submission.submission_kind,
+        Submission.created_at,
+    ]
+    column_searchable_list = [Submission.status]
+    column_sortable_list = [
+        Submission.id, Submission.status, Submission.score, Submission.created_at,
+    ]
+    column_default_sort = (Submission.created_at, True)
+    form_excluded_columns = [Submission.payload_binary]
+    can_create = False
+    can_delete = True
+
+
+
+
+# ---------------------------------------------------------------------------
+# Create Challenge view
+# ---------------------------------------------------------------------------
+
+class CreateChallengeView(BaseView):
+    name = "New Challenge"
+    icon = "fa-solid fa-plus-circle"
+
+    @expose("/create-challenge", methods=["GET"])
+    async def get_create_challenge(self, request: Request) -> Response:
+        form_html = _render_create_challenge_form()
+        return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+
+    @expose("/create-challenge", methods=["POST"])
+    async def post_create_challenge(self, request: Request) -> Response:
+        import json as _json
+        import shutil
+        import zipfile
+        import tempfile
+        from pathlib import Path as _Path
+
+        form = await request.form()
+        slug = (form.get("slug") or "").strip()
+        title = (form.get("title") or "").strip()
+        summary = (form.get("summary") or "").strip()
+        description = (form.get("description") or "").strip()
+        track = form.get("track", "MOS Foundations")
+        difficulty = form.get("difficulty", "introductory")
+        curriculum_order = int(form.get("curriculum_order") or 0)
+        category = (form.get("category") or "").strip() or track
+        expected_subckt = (form.get("expected_subckt") or "").strip()
+        expected_pins_raw = (form.get("expected_pins") or "").strip()
+        starter_netlist = (form.get("starter_netlist") or "").strip()
+        judge_backend = form.get("judge_backend", "characterization")
+        submission_kind = form.get("submission_kind", "netlist")
+        score_unit = form.get("score_unit", "points")
+        lower_is_better = form.get("lower_is_better") == "on"
+        is_active = form.get("is_active") == "on"
+        is_ranked = form.get("is_ranked") == "on"
+        verification_version = int(form.get("verification_version") or 1)
+        prerequisites_raw = (form.get("prerequisites") or "").strip()
+
+        judge_zip = form.get("judge_zip")
+
+        def _err(msg):
+            form_html = _render_create_challenge_form(error=msg, data=form)
+            return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+
+        if not slug or not title or not summary or not description or not expected_subckt:
+            return _err("Please fill in all required fields (slug, title, summary, description, subcircuit name).")
+
+        import re
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+            return _err("Slug must be lowercase, alphanumeric, separated by hyphens (e.g. basic-current-mirror).")
+
+        if not judge_zip or not hasattr(judge_zip, "read"):
+            return _err("You must upload a ZIP file containing the judge/ folder (definition.yaml + test circuits).")
+
+        pin_list = [p.strip() for p in expected_pins_raw.split(",") if p.strip()]
+        if not pin_list:
+            return _err("At least one pin is required.")
+
+        prereqs = [s.strip() for s in prerequisites_raw.split(",") if s.strip()] if prerequisites_raw else []
+
+        with SessionLocal() as session:
+            existing = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if existing:
+                return _err(f"A challenge with slug '{slug}' already exists.")
+
+        from .config import get_settings as _get_settings
+        settings = _get_settings()
+        challenges_root = _Path(settings.challenges_path)
+        package_dir = challenges_root / slug
+
+        if package_dir.exists():
+            return _err(f"Directory '{slug}' already exists under challenges/. Pick a different slug.")
+
+        try:
+            package_dir.mkdir(parents=True, exist_ok=False)
+
+            zip_bytes = await judge_zip.read()
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                tmp.write(zip_bytes)
+                tmp_path = tmp.name
+
+            MAX_ZIP_ENTRIES = 500
+            MAX_ZIP_DECOMPRESSED = 50 * 1024 * 1024  # 50 MiB
+            try:
+                with zipfile.ZipFile(tmp_path, "r") as zf:
+                    entries = zf.infolist()
+                    if len(entries) > MAX_ZIP_ENTRIES:
+                        raise ValueError(f"ZIP contains too many entries ({len(entries)} > {MAX_ZIP_ENTRIES})")
+                    total_size = sum(e.file_size for e in entries)
+                    if total_size > MAX_ZIP_DECOMPRESSED:
+                        raise ValueError(f"ZIP decompressed size exceeds {MAX_ZIP_DECOMPRESSED // (1024*1024)} MiB")
+                    for entry in entries:
+                        # Reject symlinks
+                        if entry.external_attr >> 28 == 0xA:
+                            raise ValueError(f"ZIP contains a symlink: {entry.filename}")
+                        # Resolve the target path and ensure it stays inside package_dir
+                        target = (package_dir / entry.filename).resolve()
+                        try:
+                            target.relative_to(package_dir.resolve())
+                        except ValueError:
+                            raise ValueError(f"ZIP contains path traversal: {entry.filename}")
+                    zf.extractall(package_dir)
+            finally:
+                import os
+                os.unlink(tmp_path)
+
+            judge_def_path = "judge/definition.yaml"
+            if not (package_dir / judge_def_path).is_file():
+                top_dirs = [d for d in package_dir.iterdir() if d.is_dir()]
+                if len(top_dirs) == 1 and (top_dirs[0] / "definition.yaml").is_file():
+                    inner = top_dirs[0]
+                    judge_target = package_dir / "judge"
+                    if inner.name != "judge":
+                        inner.rename(judge_target)
+                elif (package_dir / "definition.yaml").is_file():
+                    judge_dir = package_dir / "judge"
+                    judge_dir.mkdir(exist_ok=True)
+                    for item in list(package_dir.iterdir()):
+                        if item.name != "judge":
+                            shutil.move(str(item), str(judge_dir / item.name))
+
+                if not (package_dir / judge_def_path).is_file():
+                    raise ValueError(
+                        "The ZIP must contain a judge/ folder with definition.yaml inside. "
+                        "Expected structure: judge/definition.yaml, judge/tests/functional.cir"
+                    )
+
+            spec_path = package_dir / "specification.md"
+            spec_path.write_text(description, encoding="utf-8")
+
+            if starter_netlist:
+                starter_path = package_dir / "starter.cir"
+                starter_path.write_text(starter_netlist, encoding="utf-8")
+
+            # Process optional design files (assets for student download)
+            design_files_assets = []
+            design_files_raw = form.getlist("design_files")
+            for df in design_files_raw:
+                if not hasattr(df, "read") or not df.filename:
+                    continue
+                fname = _Path(df.filename).name
+                if not fname:
+                    continue
+                df_bytes = await df.read()
+                if len(df_bytes) == 0:
+                    continue
+                dest = package_dir / fname
+                dest.write_bytes(df_bytes)
+                ext = _Path(fname).suffix.lower()
+                ext_labels = {
+                    ".sch": "Xschem schematic",
+                    ".sym": "Xschem symbol",
+                    ".gds": "GDSII layout",
+                    ".spice": "SPICE netlist",
+                    ".cir": "SPICE netlist",
+                    ".lib": "SPICE library",
+                }
+                label = f"{ext_labels.get(ext, 'Design file')} ({ext})"
+                asset_id = fname.replace(".", "_").replace(" ", "_").lower()
+                design_files_assets.append({
+                    "id": asset_id,
+                    "label": label,
+                    "path": fname,
+                    "download_name": fname,
+                })
+
+            judge_config = {"definition": judge_def_path}
+            manifest = {
+                "schema_version": 2,
+                "slug": slug,
+                "title": title,
+                "summary": summary,
+                "track": track,
+                "difficulty": difficulty,
+                "verification_version": verification_version,
+                "curriculum_order": curriculum_order,
+                "prerequisites": prereqs,
+                "is_ranked": is_ranked,
+                "specification_file": "specification.md",
+                "interface": {
+                    "subckt": expected_subckt,
+                    "pins": pin_list,
+                },
+                "submission": {"kind": submission_kind},
+                "judge_backend": judge_backend,
+                "judge_config": judge_config,
+                "score_unit": score_unit,
+                "lower_is_better": lower_is_better,
+                "is_active": False,
+                "intended_is_active": is_active,
+                "assets": design_files_assets,
+            }
+            if starter_netlist:
+                manifest["starter_file"] = "starter.cir"
+            if category and category != track:
+                manifest["category"] = category
+
+            manifest_path = package_dir / "challenge.json"
+            manifest_path.write_text(
+                _json.dumps(manifest, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            from .challenge_catalog import _read_package
+            try:
+                validated_slug, values = _read_package(package_dir)
+            except ValueError as ve:
+                raise ValueError(f"Validation failed: {ve}")
+
+            with SessionLocal() as session:
+                challenge = Challenge(slug=validated_slug, **values)
+                session.add(challenge)
+                session.commit()
+
+        except Exception as exc:
+            if package_dir.exists():
+                shutil.rmtree(package_dir, ignore_errors=True)
+            return _err(f"Error creating challenge: {exc}")
+
+        return RedirectResponse(url=f"/challenges/{slug}?preview=1", status_code=302)
+
+    @expose("/create-challenge-confirm", methods=["POST"])
+    async def confirm_create_challenge(self, request: Request) -> Response:
+        form = await request.form()
+        slug = (form.get("slug") or "").strip()
+        if not slug:
+            return RedirectResponse("/admin/challenge/list", status_code=302)
+            
+        with SessionLocal() as session:
+            challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if challenge:
+                from .config import get_settings as _get_settings
+                from pathlib import Path as _Path
+                import json as _json
+                challenges_root = _Path(_get_settings().challenges_path)
+                manifest_path = challenges_root / slug / "challenge.json"
+                if manifest_path.exists():
+                    manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+                    challenge.is_active = manifest.get("intended_is_active", True)
+                    if "intended_is_active" in manifest:
+                        del manifest["intended_is_active"]
+                    manifest["is_active"] = challenge.is_active
+                    manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+                session.commit()
+        return RedirectResponse("/admin/challenge/list", status_code=302)
+
+    @expose("/create-challenge-cancel", methods=["POST"])
+    async def cancel_create_challenge(self, request: Request) -> Response:
+        form = await request.form()
+        slug = (form.get("slug") or "").strip()
+        if not slug:
+            return RedirectResponse("/admin/create-challenge", status_code=302)
+            
+        data = {}
+        with SessionLocal() as session:
+            challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if challenge:
+                data = {
+                    "slug": challenge.slug,
+                    "title": challenge.title,
+                    "summary": challenge.summary,
+                    "track": challenge.track,
+                    "difficulty": challenge.difficulty,
+                    "curriculum_order": challenge.curriculum_order,
+                    "category": challenge.category,
+                    "score_unit": challenge.score_unit,
+                    "lower_is_better": "on" if challenge.lower_is_better else "",
+                    "is_ranked": "on" if challenge.is_ranked else "",
+                    "verification_version": challenge.verification_version,
+                    "expected_subckt": challenge.expected_subckt,
+                    "expected_pins": ", ".join(challenge.expected_pins or []),
+                    "judge_backend": challenge.judge_backend,
+                    "submission_kind": challenge.submission_kind,
+                    "prerequisites": ", ".join(challenge.prerequisites or []),
+                }
+                from .config import get_settings as _get_settings
+                from pathlib import Path as _Path
+                import json as _json
+                import shutil
+                
+                challenges_root = _Path(_get_settings().challenges_path)
+                package_dir = challenges_root / slug
+                
+                if package_dir.exists():
+                    try:
+                        manifest = _json.loads((package_dir / "challenge.json").read_text(encoding="utf-8"))
+                        data["is_active"] = "on" if manifest.get("intended_is_active", False) else ""
+                    except:
+                        pass
+                    try:
+                        data["description"] = (package_dir / "specification.md").read_text(encoding="utf-8")
+                    except:
+                        pass
+                    try:
+                        data["starter_netlist"] = (package_dir / "starter.cir").read_text(encoding="utf-8")
+                    except:
+                        pass
+                        
+                session.delete(challenge)
+                session.commit()
+                if package_dir.exists():
+                    shutil.rmtree(package_dir, ignore_errors=True)
+                    
+        form_html = _render_create_challenge_form(
+            error="Draft discarded. You can continue editing. Note: You must select the ZIP file again.", 
+            data=data
+        )
+        return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+
+
+
+
+def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
+    data = data or {}
+    err_html = f'<div class="alert alert-danger">{escape(error)}</div>' if error else ""
+
+    def val(key, default=""):
+        return escape(str(data.get(key, default)))
+
+    def check(key, default=False):
+        if not data:
+            return "checked" if default else ""
+        return "checked" if data.get(key) else ""
+
+    def sel(key, opt, default=False):
+        if not data:
+            return "selected" if default else ""
+        return "selected" if data.get(key) == opt else ""
+
+    return f'''
+{err_html}
+<form method="post" enctype="multipart/form-data" action="/admin/create-challenge">
+  <div class="row g-4">
+    <!-- Basic Info -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-align-left"></i> Basic Info</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Slug <span class="text-danger">*</span></label>
+            <input type="text" name="slug" class="form-control" required placeholder="e.g. basic-current-mirror" value="{val('slug')}">
+            <div class="form-text">Lowercase, hyphens only. Also used as the folder name under <code>challenges/</code>.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Title <span class="text-danger">*</span></label>
+            <input type="text" name="title" class="form-control" required value="{val('title')}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Summary <span class="text-danger">*</span></label>
+            <input type="text" name="summary" class="form-control" required value="{val('summary')}">
+            <div class="form-text">One-liner shown on challenge cards.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Description (Markdown) <span class="text-danger">*</span></label>
+            <textarea name="description" class="form-control" rows="5" required>{val('description')}</textarea>
+            <div class="form-text">Full specification the student sees. Saved as <code>specification.md</code>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Classification -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-tags"></i> Classification</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Track</label>
+            <select name="track" class="form-select">
+              <option value="MOS Foundations" {sel('track', 'MOS Foundations', True)}>MOS Foundations</option>
+              <option value="Biasing" {sel('track', 'Biasing')}>Biasing</option>
+              <option value="Gain Stages" {sel('track', 'Gain Stages')}>Gain Stages</option>
+              <option value="Differential" {sel('track', 'Differential')}>Differential</option>
+              <option value="Amplifiers" {sel('track', 'Amplifiers')}>Amplifiers</option>
+              <option value="Physical Design" {sel('track', 'Physical Design')}>Physical Design</option>
+              <option value="Advanced" {sel('track', 'Advanced')}>Advanced</option>
+              <option value="General" {sel('track', 'General')}>General</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Difficulty</label>
+            <select name="difficulty" class="form-select">
+              <option value="introductory" {sel('difficulty', 'introductory', True)}>Introductory (x1 pts)</option>
+              <option value="intermediate" {sel('difficulty', 'intermediate')}>Intermediate (x2 pts)</option>
+              <option value="advanced" {sel('difficulty', 'advanced')}>Advanced (x3 pts)</option>
+              <option value="capstone" {sel('difficulty', 'capstone')}>Capstone (x4 pts)</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label fw-bold">Curriculum Order</label>
+              <input type="number" name="curriculum_order" class="form-control" value="{val('curriculum_order', '0')}">
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label fw-bold">Category</label>
+              <input type="text" name="category" class="form-control" value="{val('category', 'General')}">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Prerequisites</label>
+            <input type="text" name="prerequisites" class="form-control" placeholder="e.g. basic-current-mirror, common-source" value="{val('prerequisites')}">
+            <div class="form-text">Comma-separated slugs of challenges that must be solved first.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Circuit Interface -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-microchip"></i> Circuit Interface</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Expected Subcircuit Name <span class="text-danger">*</span></label>
+            <input type="text" name="expected_subckt" class="form-control" required placeholder="e.g. basic_current_mirror" value="{val('expected_subckt')}">
+            <div class="form-text">Exact <code>.subckt</code> name the student must define.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Expected Pins <span class="text-danger">*</span></label>
+            <input type="text" name="expected_pins" class="form-control" required placeholder="iref, out, vdd, vss" value="{val('expected_pins')}">
+            <div class="form-text">Comma-separated pin list, in the exact order expected by the testbench.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Starter Netlist</label>
+            <textarea name="starter_netlist" class="form-control" rows="4" style="font-family:monospace;font-size:12px">{val('starter_netlist')}</textarea>
+            <div class="form-text">Initial code the student sees in the editor. Optional.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Judge Files -->
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-file-zipper"></i> Judge Files (ZIP Upload)</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Judge ZIP File <span class="text-danger">*</span></label>
+            <input type="file" name="judge_zip" class="form-control" accept=".zip" required>
+            <div class="form-text">
+              Upload a <code>.zip</code> containing the judge folder. Expected structure:<br>
+              <code>judge/definition.yaml</code> &mdash; test definitions, measurements, scoring<br>
+              <code>judge/tests/functional.cir</code> &mdash; ngspice testbench template<br>
+              <code>judge/reference.spice</code> &mdash; reference netlist (optional)
+            </div>
+          </div>
+          <div class="alert alert-info" style="font-size:12px">
+            <strong><i class="fa-solid fa-info-circle"></i> Tip:</strong>
+            You can create the ZIP from an existing challenge folder:
+            <code style="display:block;margin-top:6px;background:#e8e8e8;padding:6px;border-radius:4px">
+              cd challenges/existing-challenge &amp;&amp; zip -r judge.zip judge/
+            </code>
+          </div>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label fw-bold">Judge Backend</label>
+              <select name="judge_backend" class="form-select">
+                <option value="characterization" {sel('judge_backend', 'characterization', True)}>Characterization</option>
+                <option value="klayout" {sel('judge_backend', 'klayout')}>Klayout (GDS)</option>
+              </select>
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label fw-bold">Submission Kind</label>
+              <select name="submission_kind" class="form-select">
+                <option value="netlist" {sel('submission_kind', 'netlist', True)}>Netlist</option>
+                <option value="gds" {sel('submission_kind', 'gds')}>GDS</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scoring & Options -->
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-sliders"></i> Scoring &amp; Options</div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-3 mb-3">
+              <label class="form-label fw-bold">Score Unit</label>
+              <select name="score_unit" class="form-select">
+                <option value="points" {sel('score_unit', 'points', True)}>points</option>
+                <option value="ps" {sel('score_unit', 'ps')}>ps</option>
+                <option value="uA" {sel('score_unit', 'uA')}>uA</option>
+                <option value="V/V" {sel('score_unit', 'V/V')}>V/V</option>
+                <option value="Hz" {sel('score_unit', 'Hz')}>Hz</option>
+              </select>
+            </div>
+            <div class="col-md-3 mb-3">
+              <label class="form-label fw-bold">Verification Ver.</label>
+              <input type="number" name="verification_version" class="form-control" value="{val('verification_version', '1')}">
+            </div>
+            <div class="col-md-6 d-flex align-items-end gap-4 mb-3">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check('lower_is_better')}>
+                <label class="form-check-label" for="checkLower">Lower score is better</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check('is_active', True)}>
+                <label class="form-check-label" for="checkActive">Active</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>
+                <label class="form-check-label" for="checkRanked">Ranked</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+    <!-- Design Files (optional) -->
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white"><i class="fa-solid fa-download"></i> Design Files (Optional)</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Downloadable files for students</label>
+            <input type="file" name="design_files" class="form-control" multiple accept=".sch,.sym,.gds,.spice,.cir,.lib">
+            <div class="form-text">
+              Upload <code>.sch</code>, <code>.sym</code>, <code>.gds</code>, or other design files that students can download.
+              These appear as "DESIGN FILES" on the challenge page. Optional &mdash; leave empty if not needed.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 text-center">
+    <button type="submit" class="btn btn-success btn-lg px-5"><i class="fa-solid fa-check"></i> Create Challenge</button>
+  </div>
+</form>
+'''
+
+
+# ---------------------------------------------------------------------------
+# Admin Stats API (for the index page)
+# ---------------------------------------------------------------------------
+
+class AdminStatsAPI(BaseView):
+    name = "Stats API"
+    icon = "fa-solid fa-code"
+    
+    def is_visible(self, request: Request) -> bool:
+        return False
+
+    @expose("/admin-stats-api", methods=["GET"])
+    async def stats_api(self, request: Request) -> Response:
+        import json as _json
+        with SessionLocal() as session:
+            total_users = session.scalar(select(func.count(User.id))) or 0
+            total_challenges = session.scalar(
+                select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
+            ) or 0
+            total_submissions = session.scalar(select(func.count(Submission.id))) or 0
+            today_submissions = session.scalar(
+                select(func.count(Submission.id))
+                .where(Submission.created_at >= func.current_date())
+            ) or 0
+        return Response(
+            _json.dumps({
+                "users": total_users,
+                "challenges": total_challenges,
+                "submissions": total_submissions,
+                "today": today_submissions,
+            }),
+            media_type="application/json",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Challenge Statistics view
+# ---------------------------------------------------------------------------
+
+class ChallengeStatsView(BaseView):
+    name = "Challenge Stats"
+    icon = "fa-solid fa-chart-bar"
+
+    @expose("/challenge-stats", methods=["GET"])
+    async def challenge_stats(self, request: Request) -> Response:
+        with SessionLocal() as session:
+            challenges = session.scalars(
+                select(Challenge)
+                .where(Challenge.is_active.is_(True))
+                .order_by(Challenge.curriculum_order, Challenge.id)
+            ).all()
+
+            stats: list[dict] = []
+            for challenge in challenges:
+                total = session.scalar(
+                    select(func.count(Submission.id))
+                    .where(Submission.challenge_id == challenge.id)
+                ) or 0
+                accepted = session.scalar(
+                    select(func.count(Submission.id))
+                    .where(
+                        Submission.challenge_id == challenge.id,
+                        Submission.status == "accepted",
+                    )
+                ) or 0
+                failed = session.scalar(
+                    select(func.count(Submission.id))
+                    .where(
+                        Submission.challenge_id == challenge.id,
+                        Submission.status.in_(["failed", "rejected"]),
+                    )
+                ) or 0
+                queued = session.scalar(
+                    select(func.count(Submission.id))
+                    .where(
+                        Submission.challenge_id == challenge.id,
+                        Submission.status.in_(["queued", "running"]),
+                    )
+                ) or 0
+                unique_users = session.scalar(
+                    select(func.count(func.distinct(Submission.user_id)))
+                    .where(Submission.challenge_id == challenge.id)
+                ) or 0
+                users_accepted = session.scalar(
+                    select(func.count(func.distinct(Submission.user_id)))
+                    .where(
+                        Submission.challenge_id == challenge.id,
+                        Submission.status == "accepted",
+                    )
+                ) or 0
+                avg_score = session.scalar(
+                    select(func.avg(Submission.score))
+                    .where(
+                        Submission.challenge_id == challenge.id,
+                        Submission.status == "accepted",
+                        Submission.score.is_not(None),
+                    )
+                )
+                best_score = session.scalar(
+                    select(
+                        func.min(Submission.score)
+                        if challenge.lower_is_better
+                        else func.max(Submission.score)
+                    )
+                    .where(
+                        Submission.challenge_id == challenge.id,
+                        Submission.status == "accepted",
+                        Submission.score.is_not(None),
+                    )
+                )
+                acceptance_rate = (accepted / total * 100) if total > 0 else 0
+                stats.append({
+                    "challenge": challenge,
+                    "total_submissions": total,
+                    "accepted": accepted,
+                    "failed": failed,
+                    "queued": queued,
+                    "unique_users": unique_users,
+                    "users_accepted": users_accepted,
+                    "acceptance_rate": round(acceptance_rate, 1),
+                    "avg_score": round(avg_score, 4) if avg_score is not None else None,
+                    "best_score": round(best_score, 4) if best_score is not None else None,
+                })
+
+            total_challenges = len(challenges)
+            total_submissions = sum(s["total_submissions"] for s in stats)
+            total_users = session.scalar(select(func.count(User.id))) or 0
+            total_accepted = sum(s["accepted"] for s in stats)
+
+        return HTMLResponse(_render_stats_page(
+            stats, total_challenges, total_submissions, total_users, total_accepted,
+        ))
+
+
+# ---------------------------------------------------------------------------
+# Global Leaderboard view
+# ---------------------------------------------------------------------------
+
+class GlobalLeaderboardView(BaseView):
+    name = "Global Ranking"
+    icon = "fa-solid fa-trophy"
+
+    @expose("/global-ranking", methods=["GET"])
+    async def global_ranking(self, request: Request) -> Response:
+        with SessionLocal() as session:
+            leaders = global_leaderboard(session)
+            challenges = session.scalars(
+                select(Challenge)
+                .where(Challenge.is_active.is_(True), Challenge.is_ranked.is_(True))
+                .order_by(Challenge.curriculum_order, Challenge.id)
+            ).all()
+            max_points = sum(
+                DIFFICULTY_WEIGHTS.get(c.difficulty, 1) * 100 for c in challenges
+            )
+            total_users = session.scalar(select(func.count(User.id))) or 0
+            users_with_submissions = session.scalar(
+                select(func.count(func.distinct(Submission.user_id)))
+                .where(Submission.status == "accepted")
+            ) or 0
+
+        return HTMLResponse(_render_leaderboard_page(
+            leaders, challenges, max_points, total_users, users_with_submissions,
+        ))
+
+
+# ---------------------------------------------------------------------------
+# Recent Activity view
+# ---------------------------------------------------------------------------
+
+class RecentActivityView(BaseView):
+    name = "Recent Activity"
+    icon = "fa-solid fa-clock-rotate-left"
+
+    @expose("/recent-activity", methods=["GET"])
+    async def recent_activity(self, request: Request) -> Response:
+        with SessionLocal() as session:
+            recent = session.execute(
+                select(Submission, User, Challenge)
+                .join(User, Submission.user_id == User.id)
+                .join(Challenge, Submission.challenge_id == Challenge.id)
+                .order_by(Submission.created_at.desc())
+                .limit(50)
+            ).all()
+
+            # Recent registrations
+            recent_users = session.scalars(
+                select(User).order_by(User.created_at.desc()).limit(10)
+            ).all()
+
+            total_today = session.scalar(
+                select(func.count(Submission.id))
+                .where(Submission.created_at >= func.current_date())
+            ) or 0
+            accepted_today = session.scalar(
+                select(func.count(Submission.id))
+                .where(
+                    Submission.created_at >= func.current_date(),
+                    Submission.status == "accepted",
+                )
+            ) or 0
+
+        return HTMLResponse(_render_activity_page(
+            recent, recent_users, total_today, accepted_today,
+        ))
+
+
+# ---------------------------------------------------------------------------
+# HTML renderers
+# ---------------------------------------------------------------------------
+
+def _render_stats_page(
+    stats: list[dict],
+    total_challenges: int,
+    total_submissions: int,
+    total_users: int,
+    total_accepted: int,
+) -> str:
+    rows = ""
+    for s in stats:
+        c = s["challenge"]
+        avg = f'{s["avg_score"]:.4g}' if s["avg_score"] is not None else "\u2014"
+        best = f'{s["best_score"]:.4g}' if s["best_score"] is not None else "\u2014"
+        active_badge = (
+            '<span style="color:#2e7d32;font-weight:600">\u25cf Active</span>'
+            if c.is_active
+            else '<span style="color:#c62828;font-weight:600">\u25cf Inactive</span>'
+        )
+        diff_colors = {
+            "introductory": "#2e7d32", "intermediate": "#ef6c00",
+            "advanced": "#c62828", "capstone": "#6a1b9a",
+        }
+        diff_color = diff_colors.get(c.difficulty, "#555")
+        rows += f"""<tr>
+          <td><strong>{escape(c.title)}</strong><br><small style="color:#888">{escape(c.slug)}</small></td>
+          <td>{escape(c.track)}</td>
+          <td><span style="color:{diff_color};font-weight:600;text-transform:uppercase;font-size:11px">{escape(c.difficulty)}</span></td>
+          <td style="text-align:center">{active_badge}</td>
+          <td style="text-align:right">{s["total_submissions"]}</td>
+          <td style="text-align:right"><span style="color:#2e7d32">{s["accepted"]}</span></td>
+          <td style="text-align:right"><span style="color:#c62828">{s["failed"]}</span></td>
+          <td style="text-align:right">{s["queued"]}</td>
+          <td style="text-align:right">{s["acceptance_rate"]}%</td>
+          <td style="text-align:right">{s["unique_users"]}</td>
+          <td style="text-align:right">{s["users_accepted"]}</td>
+          <td style="text-align:right">{avg} {escape(c.score_unit)}</td>
+          <td style="text-align:right"><strong>{best}</strong> {escape(c.score_unit) if best != chr(0x2014) else ''}</td>
+        </tr>"""
+
+    overall_rate = round(total_accepted / total_submissions * 100, 1) if total_submissions > 0 else 0
+
+    cards = f"""<div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="stat-card"><div class="number">{total_challenges}</div><div class="label">Active Challenges</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{total_submissions}</div><div class="label">Total Submissions</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{total_users}</div><div class="label">Registered Users</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{overall_rate}%</div><div class="label">Overall Acceptance Rate</div></div></div>
+  </div>"""
+
+    empty = '<tr><td colspan="13" style="text-align:center;color:#888;padding:40px">No submissions yet</td></tr>'
+    table = f"""<div class="data-table">
+    <div class="section-title"><h5><i class="fa-solid fa-list-check"></i> Per-Challenge Breakdown</h5></div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr>
+        <th>Challenge</th><th>Track</th><th>Difficulty</th><th style="text-align:center">Status</th>
+        <th style="text-align:right">Submissions</th><th style="text-align:right">Accepted</th>
+        <th style="text-align:right">Failed</th><th style="text-align:right">Queued</th>
+        <th style="text-align:right">Accept %</th><th style="text-align:right">Users</th>
+        <th style="text-align:right">Solved By</th><th style="text-align:right" title="Raw ngspice measurement">Avg Result</th>
+        <th style="text-align:right" title="Raw ngspice measurement">Best Result</th>
+      </tr></thead>
+      <tbody>{rows or empty}</tbody>
+    </table></div>
+  </div>
+  <div class="mt-3 text-center"><small style="color:#888">
+    <i class="fa-solid fa-circle-info"></i>
+    To activate/deactivate challenges, go to <a href="/admin/challenge/list" style="color:#d56a3a">Challenges</a>
+    and edit the <strong>is_active</strong> field.
+    &nbsp;|&nbsp;
+    To add a new challenge, use <a href="/admin/challenge/create" style="color:#d56a3a">Create Challenge</a>.
+  </small></div>"""
+
+    return _page("Challenge Statistics", "chart-bar",
+                  "Per-challenge performance metrics across all users",
+                  cards + table)
+
+
+def _render_leaderboard_page(
+    leaders: list,
+    challenges: list,
+    max_points: float,
+    total_users: int,
+    users_with_submissions: int,
+) -> str:
+    cards = f"""<div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="stat-card"><div class="number">{len(leaders)}</div><div class="label">Ranked Students</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{total_users}</div><div class="label">Registered Users</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{users_with_submissions}</div><div class="label">With Accepted Work</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{max_points:.0f}</div><div class="label">Maximum Points</div></div></div>
+  </div>"""
+
+    # Challenge column headers
+    ch_headers = ""
+    for c in challenges:
+        diff_cls = {"introductory": "intro", "intermediate": "inter",
+                    "advanced": "adv", "capstone": "cap"}.get(c.difficulty, "")
+        ch_headers += f'<th style="text-align:center;font-size:9px;max-width:80px;white-space:normal;line-height:1.2" title="{escape(c.title)}">{escape(c.title[:18])}</th>'
+
+    rows = ""
+    for leader in leaders:
+        medal = ""
+        rank_cls = ""
+        if leader.rank == 1:
+            medal = '<span class="medal">\U0001f947</span> '
+            rank_cls = " rank-1"
+        elif leader.rank == 2:
+            medal = '<span class="medal">\U0001f948</span> '
+            rank_cls = " rank-2"
+        elif leader.rank == 3:
+            medal = '<span class="medal">\U0001f949</span> '
+            rank_cls = " rank-3"
+
+        pct = (leader.total_points / max_points * 100) if max_points > 0 else 0
+        bar_color = "#2e7d32" if pct >= 70 else "#ef6c00" if pct >= 40 else "#c62828"
+
+        # Build per-challenge detail cells
+        detail_map = {d.challenge.id: d for d in leader.details}
+        ch_cells = ""
+        for c in challenges:
+            d = detail_map.get(c.id)
+            if d:
+                diff_cls = {"introductory": "intro", "intermediate": "inter",
+                            "advanced": "adv", "capstone": "cap"}.get(c.difficulty, "")
+                ch_cells += f'<td style="text-align:center"><span class="detail-badge {diff_cls}" title="{d.score:.4g} {escape(c.score_unit)} \u2014 {d.points:.0f} pts">{d.points:.0f}</span></td>'
+            else:
+                ch_cells += '<td style="text-align:center;color:#ddd">\u2014</td>'
+
+        rows += f"""<tr>
+          <td class="{rank_cls}" style="text-align:center;font-size:18px;width:50px">{medal}{leader.rank}</td>
+          <td><strong>{escape(leader.user.display_name)}</strong><br><small style="color:#888">{escape(leader.user.email)}</small></td>
+          <td style="text-align:right"><strong style="font-size:18px">{leader.total_points:.0f}</strong><br><small style="color:#888">/ {max_points:.0f}</small></td>
+          <td style="text-align:center">{leader.completed} / {len(challenges)}</td>
+          <td style="width:120px">
+            <div style="background:#eee;border-radius:4px;height:8px;overflow:hidden">
+              <div style="background:{bar_color};height:100%;width:{pct:.0f}%"></div>
+            </div>
+            <small style="color:#888;font-size:10px">{pct:.1f}%</small>
+          </td>
+          {ch_cells}
+        </tr>"""
+
+    empty = f'<tr><td colspan="{5 + len(challenges)}" style="text-align:center;color:#888;padding:40px">No ranked students yet. Rankings appear once a student has an accepted submission.</td></tr>'
+
+    table = f"""<div class="data-table">
+    <div class="section-title">
+      <h5><i class="fa-solid fa-ranking-star"></i> Full Global Ranking</h5>
+      <small style="color:#888;display:block;margin-top:4px">
+        Points = percentile \u00d7 difficulty weight (introductory=1, intermediate=2, advanced=3, capstone=4).
+        Higher is better. Tied students share the same rank.
+      </small>
+    </div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr>
+        <th style="text-align:center">Rank</th>
+        <th>Student</th>
+        <th style="text-align:right">Points</th>
+        <th style="text-align:center">Solved</th>
+        <th>Progress</th>
+        {ch_headers}
+      </tr></thead>
+      <tbody>{rows or empty}</tbody>
+    </table></div>
+  </div>
+  <div class="mt-3 text-center"><small style="color:#888">
+    <i class="fa-solid fa-circle-info"></i>
+    This is the same ranking used to determine <strong>Fundaci\u00f3n Fulgor scholarships</strong>.
+    The highest-ranking students automatically earn scholarships.
+  </small></div>"""
+
+    return _page("Global Ranking", "trophy",
+                  "Complete difficulty-weighted leaderboard across all challenges",
+                  cards + table)
+
+
+def _render_activity_page(
+    recent: list,
+    recent_users: list,
+    total_today: int,
+    accepted_today: int,
+) -> str:
+    cards = f"""<div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="stat-card"><div class="number">{total_today}</div><div class="label">Submissions Today</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{accepted_today}</div><div class="label">Accepted Today</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{len(recent_users)}</div><div class="label">Recent Registrations</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{len(recent)}</div><div class="label">Showing Last N</div></div></div>
+  </div>"""
+
+    # Recent submissions
+    sub_rows = ""
+    for submission, user, challenge in recent:
+        status_color = {
+            "accepted": "#2e7d32", "failed": "#c62828", "rejected": "#c62828",
+            "queued": "#e2a723", "running": "#e2a723",
+        }.get(submission.status, "#888")
+        score_str = f"{submission.score:.4g} {challenge.score_unit}" if submission.score is not None else "\u2014"
+        ts = submission.created_at.strftime("%Y-%m-%d %H:%M") if submission.created_at else "\u2014"
+        sub_rows += f"""<tr>
+          <td style="text-align:center;font-size:12px;color:#888">#{submission.id}</td>
+          <td><strong>{escape(user.display_name)}</strong></td>
+          <td>{escape(challenge.title)}<br><small style="color:#888">{escape(challenge.track)}</small></td>
+          <td style="text-align:center"><span style="color:{status_color};font-weight:600;text-transform:uppercase;font-size:11px">{escape(submission.status)}</span></td>
+          <td style="text-align:right">{score_str}</td>
+          <td style="text-align:right;color:#888;font-size:12px">{ts}</td>
+        </tr>"""
+
+    empty_subs = '<tr><td colspan="6" style="text-align:center;color:#888;padding:40px">No submissions yet</td></tr>'
+
+    submissions_table = f"""<div class="data-table mb-4">
+    <div class="section-title"><h5><i class="fa-solid fa-paper-plane"></i> Last 50 Submissions</h5></div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr>
+        <th style="text-align:center">ID</th><th>User</th><th>Challenge</th>
+        <th style="text-align:center">Status</th><th style="text-align:right">Score</th>
+        <th style="text-align:right">Time</th>
+      </tr></thead>
+      <tbody>{sub_rows or empty_subs}</tbody>
+    </table></div>
+  </div>"""
+
+    # Recent registrations
+    user_rows = ""
+    for u in recent_users:
+        ts = u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else "\u2014"
+        admin_badge = ' <span style="background:#dbff3d;color:#111815;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">ADMIN</span>' if u.is_admin else ""
+        user_rows += f"""<tr>
+          <td style="text-align:center;color:#888">#{u.id}</td>
+          <td><strong>{escape(u.display_name)}</strong>{admin_badge}</td>
+          <td>{escape(u.email)}</td>
+          <td style="text-align:right;color:#888;font-size:12px">{ts}</td>
+        </tr>"""
+
+    users_table = f"""<div class="data-table">
+    <div class="section-title"><h5><i class="fa-solid fa-user-plus"></i> Recent Registrations</h5></div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr><th style="text-align:center">ID</th><th>Name</th><th>Email</th><th style="text-align:right">Registered</th></tr></thead>
+      <tbody>{user_rows or '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px">No users yet</td></tr>'}</tbody>
+    </table></div>
+  </div>"""
+
+    return _page("Recent Activity", "clock-rotate-left",
+                  "Latest submissions and user registrations",
+                  cards + submissions_table + users_table)
+
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+
+def setup_admin(app, engine, settings: Settings) -> Admin:
+    import pathlib as _pathlib
+    auth_backend = AdminAuth(settings)
+    _tpl_dir = str(_pathlib.Path(__file__).resolve().parent / "templates" / "admin")
+    admin = Admin(
+        app,
+        engine,
+        authentication_backend=auth_backend,
+        title="LeetSpice Admin",
+        templates_dir=_tpl_dir,
+    )
+    admin.add_view(AdminStatsAPI)
+    admin.add_view(ChallengeStatsView)
+    admin.add_view(CreateChallengeView)
+    admin.add_view(GlobalLeaderboardView)
+    admin.add_view(RecentActivityView)
+    admin.add_view(UserAdmin)
+    admin.add_view(ChallengeAdmin)
+    admin.add_view(SubmissionAdmin)
+    return admin
+

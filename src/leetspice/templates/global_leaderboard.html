@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Global Leaderboard · LeetSpice{% endblock %}
+{% block content %}
+<section class="challenge-title"><div><p class="eyebrow">GLOBAL PERFORMANCE INDEX</p><h1>All benches.<br><em>One signal.</em></h1></div><div class="metric"><span>MAXIMUM</span><strong>{{ maximum_points|round|int }} PTS</strong></div></section>
+<section class="panel board global-board">
+  <div class="panel-head"><h2>Difficulty-weighted rankings</h2><span>LIVE PERCENTILES</span></div>
+  <p class="scholarship-note"><strong>Fundación Fulgor scholarship pathway.</strong> The highest-ranking students automatically earn scholarships. Equal point totals share the same rank.</p>
+  <ol>{% for leader in leaders %}<li><span class="rank">{{ "%02d"|format(leader.rank) }}</span><strong>{{ leader.user.display_name }}</strong><span class="board-completed">{{ leader.completed }} completed</span><span class="board-score">{{ "%.6g"|format(leader.total_points) }} <small>points</small></span></li>{% else %}<li class="empty">No accepted submissions.</li>{% endfor %}</ol>
+  <p class="muted ranking-method">Each challenge uses the designer's best current accepted result. Live percentile points are multiplied by difficulty: introductory 1×, intermediate 2×, advanced 3×, capstone 4×.</p>
+</section>
+{% endblock %}

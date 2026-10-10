@@ -1,0 +1,14 @@
+version: 1
+conditions:
+  corner: [tt]
+  temperature: [27]
+tests:
+- name: post_layout_timing
+  template: judge/tests/post_layout.cir
+  timeout: 30
+  sweep: {corner: all, temperature: all}
+  measurements:
+  - {name: tphl, unit: ps, minimum: 0, maximum: 500}
+  - {name: tplh, unit: ps, minimum: 0, maximum: 500}
+  - {name: average_current, unit: uA, minimum: 0, maximum: 100}
+score: {strategy: inverse_worst, measurement: tphl, scale: 1000}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Rate Limit · LeetSpice{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <div><p class="eyebrow">SECURITY</p><h1>Slow down,<br><em>engineer.</em></h1><p>Submissions are rate-limited to prevent abuse and keep the platform fair for everyone.</p></div>
+  <div class="panel form-panel">
+    <h2>⚠ Submission limit reached</h2>
+    <div class="alert danger">You have exceeded the maximum number of submissions per minute. You are temporarily blocked for 5 minutes.</div>
+    <p style="color:var(--muted);line-height:1.7;margin-top:20px;font-size:13px;">Take your time to review your netlist before resubmitting. Quality over quantity will get you to the top of the leaderboard.</p>
+    <a href="/" class="primary" style="display:block;text-align:center;text-decoration:none;margin-top:24px;">← Back to challenges</a>
+  </div>
+</section>
+{% endblock %}

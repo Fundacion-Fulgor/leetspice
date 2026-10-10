@@ -1,0 +1,7 @@
+.subckt one_stage_op_amp inp inn out vdd vss
+XINP mirror inp tail vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+XINN out inn tail vss sg13_lv_nmos W=6u L=0.5u ng=1 m=1
+XLP mirror mirror vdd vdd sg13_lv_pmos W=12u L=0.5u ng=1 m=1
+XLN out mirror vdd vdd sg13_lv_pmos W=12u L=0.5u ng=1 m=1
+RTAIL tail vss 8k
+.ends one_stage_op_amp

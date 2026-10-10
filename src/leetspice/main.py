@@ -13,6 +13,7 @@ from .auth import new_session, read_session, set_session_cookie
 from .challenge_catalog import seed_challenges
 from .config import Settings, get_settings
 from .schemas import HealthRead
+from .admin import setup_admin
 from .web import router
 
 
@@ -37,6 +38,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.settings = settings
 
     @application.middleware("http")
+    async def max_body_size_middleware(request: Request, call_next: object) -> Response:
+        if "content-length" in request.headers:
+            try:
+                length = int(request.headers["content-length"])
+                if length > 10 * 1024 * 1024:
+                    return Response("File too large. Maximum size is 10MB.", status_code=413)
+            except ValueError:
+                pass
+        return await call_next(request)  # type: ignore[operator]
+
+    @application.middleware("http")
     async def session_middleware(request: Request, call_next: object) -> Response:
         payload = read_session(request, settings)
         if not payload:
@@ -58,6 +70,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name="static",
     )
     application.include_router(router)
+    setup_admin(application, db.engine, settings)
+    
+    # Configure SlowAPI rate limiting
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+    from fastapi.responses import HTMLResponse
+    from fastapi.templating import Jinja2Templates
+    import pathlib
+    from .limiter import limiter
+
+    _templates = Jinja2Templates(directory=str(pathlib.Path(__file__).parent / "templates"))
+    application.state.limiter = limiter
+
+    async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> HTMLResponse:
+        ctx: dict = {"request": request, "current_user": None, "csrf_token": ""}
+        session_data = getattr(request.state, "session", {})
+        if session_data:
+            ctx["csrf_token"] = session_data.get("csrf", "")
+            user_id = session_data.get("user_id")
+            if user_id:
+                with db.SessionLocal() as s:
+                    from .models import User
+                    ctx["current_user"] = s.get(User, user_id)
+        return _templates.TemplateResponse(
+            request, "rate_limit.html", ctx, status_code=429
+        )
+
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+    application.add_middleware(SlowAPIMiddleware)
+
     return application
 
 

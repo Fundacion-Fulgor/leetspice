@@ -11,8 +11,12 @@ services:
       timeout: 5s
       retries: 12
     restart: unless-stopped
+    networks:
+      - default
+      - isolated_worker
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
 
@@ -25,7 +29,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
       SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
-      RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
+      RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       PDK_ROOT: /opt/IHP-Open-PDK
       PDK: ihp-sg13g2
@@ -39,16 +43,20 @@ services:
       retries: 6
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - default
     ports:
       - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ./challenges:/app/challenges
 
   worker:
     image: localhost/leetspice:local
     command: ["leetspice-worker"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
+      DATABASE_URL: postgresql+psycopg://leetspice_worker:worker_password@db:5432/${POSTGRES_DB:-leetspice}
       SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
-      RUNNER_BACKEND: ${RUNNER_BACKEND:-mock}
+      RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       WORKER_DATA_DIR: /var/lib/leetspice
       PDK_ROOT: /opt/IHP-Open-PDK
@@ -61,8 +69,19 @@ services:
       web:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - isolated_worker
+    # Resource limits (deploy.resources) removed for local dev;
+    # Podman rootless on WSL2 lacks cgroup controllers.
+    # See compose.prod.yaml for production limits.
     volumes:
       - worker_data:/var/lib/leetspice
+      - ./challenges:/app/challenges
+
+networks:
+  default:
+  isolated_worker:
+    internal: true
 
 volumes:
   postgres_data:

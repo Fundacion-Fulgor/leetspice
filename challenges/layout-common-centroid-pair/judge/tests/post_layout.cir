@@ -1,0 +1,21 @@
+.lib ${pdk_root}/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_${corner}
+.include submission.spice
+.temp ${temperature}
+VDD vdd 0 1.2
+VINP inp 0 0.7
+VINN inn 0 0.7
+VTAIL tail 0 0
+RLP vdd outp 20k
+RLN vdd outn 20k
+XDUT inp inn outp outn tail 0 common_centroid_pair
+.control
+op
+let output_common_mode=(v(outp)+v(outn))/2
+let output_imbalance=abs(v(outp)-v(outn))
+let supply_current=abs(i(VDD))
+echo output_common_mode $$&output_common_mode > results.data
+echo output_imbalance $$&output_imbalance >> results.data
+echo supply_current $$&supply_current >> results.data
+quit
+.endc
+.end

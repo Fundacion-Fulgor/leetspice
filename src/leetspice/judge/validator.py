@@ -18,6 +18,8 @@ _NUMBER = re.compile(
 )
 _MOS_PARAMETERS = {"w", "l", "m", "nf", "ng", "ad", "as", "pd", "ps", "nrd", "nrs"}
 _SG13G2_MOS_MODELS = {"sg13_lv_nmos", "sg13_lv_pmos"}
+_SG13G2_HBT_MODELS = {"npn13g2"}
+_HBT_PARAMETERS = {"nx"}
 
 
 def _logical_lines(netlist: str) -> list[tuple[int, str]]:
@@ -73,18 +75,23 @@ def _validate_device(tokens: list[str], line_number: int) -> None:
 
     if not _IDENTIFIER.fullmatch(tokens[5]):
         raise ValueError(f"line {line_number}: invalid MOS model name")
-    if kind == "X" and tokens[5].casefold() not in _SG13G2_MOS_MODELS:
+    model = tokens[5].casefold()
+    if kind == "X" and model not in _SG13G2_MOS_MODELS | _SG13G2_HBT_MODELS:
         raise ValueError(f"line {line_number}: unsupported SG13G2 device {tokens[5]!r}")
+    parameters = _HBT_PARAMETERS if model in _SG13G2_HBT_MODELS else _MOS_PARAMETERS
     seen_parameters: set[str] = set()
     for parameter in tokens[6:]:
         if parameter.count("=") != 1:
             raise ValueError(f"line {line_number}: invalid MOS parameter")
         name, value = parameter.split("=", 1)
         folded_name = name.casefold()
+        valid_value = _NUMBER.fullmatch(value) is not None
+        if model in _SG13G2_HBT_MODELS and folded_name == "nx":
+            valid_value = value.isdigit() and int(value) >= 1
         if (
-            folded_name not in _MOS_PARAMETERS
+            folded_name not in parameters
             or folded_name in seen_parameters
-            or not _NUMBER.fullmatch(value)
+            or not valid_value
         ):
             raise ValueError(f"line {line_number}: invalid MOS parameter {parameter!r}")
         seen_parameters.add(folded_name)
@@ -182,3 +189,37 @@ def validate_netlist(
         raise ValueError("exactly one complete .subckt/.ends pair is required")
     if device_count == 0:
         raise ValueError("subcircuit must contain at least one device")
+
+
+def validate_structure(netlist: str, rules: dict[str, object]) -> None:
+    """Enforce optional challenge-specific topology limits after syntax validation."""
+
+    lines = _logical_lines(netlist)
+    devices = [line.split() for _, line in lines if not line.startswith(".")]
+    exact_count = rules.get("exact_device_count")
+    if exact_count is not None:
+        if not isinstance(exact_count, int) or isinstance(exact_count, bool) or exact_count < 1:
+            raise ValueError("exact_device_count must be a positive integer")
+        if len(devices) != exact_count:
+            raise ValueError(f"submission must contain exactly {exact_count} device(s)")
+    allowed_kinds = rules.get("allowed_kinds")
+    if allowed_kinds is not None:
+        if not isinstance(allowed_kinds, list) or not all(
+            isinstance(kind, str) and len(kind) == 1 for kind in allowed_kinds
+        ):
+            raise ValueError("allowed_kinds must contain one-letter element types")
+        allowed = {kind.upper() for kind in allowed_kinds}
+        if any(tokens[0][0].upper() not in allowed for tokens in devices):
+            raise ValueError("submission contains a disallowed device type")
+    allowed_models = rules.get("allowed_models")
+    if allowed_models is not None:
+        if not isinstance(allowed_models, list) or not all(
+            isinstance(model, str) and model in _SG13G2_MOS_MODELS for model in allowed_models
+        ):
+            raise ValueError("allowed_models contains an unsupported SG13G2 model")
+        allowed = {model.casefold() for model in allowed_models}
+        if any(
+            tokens[0][0].upper() in {"M", "X"} and tokens[5].casefold() not in allowed
+            for tokens in devices
+        ):
+            raise ValueError("submission contains a disallowed MOS model")

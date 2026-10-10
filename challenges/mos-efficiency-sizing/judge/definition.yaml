@@ -1,0 +1,18 @@
+version: 2
+conditions:
+  corner: [tt]
+  temperature: [27]
+tests:
+- name: efficiency
+  template: judge/tests/efficiency.cir
+  timeout: 30
+  sweep: {corner: all, temperature: all}
+  measurements:
+  - {name: drain_current, unit: A, minimum: 4.5e-5, maximum: 5.5e-5}
+  - {name: gmid, unit: 1/V, minimum: 5}
+  - {name: intrinsic_gain, unit: V/V, minimum: 10}
+  - {name: output_conductance, unit: S, minimum: 1.0e-10}
+score:
+  objectives:
+  - {measurement: gmid, direction: maximize, aggregation: minimum, normalization: 10}
+  - {measurement: intrinsic_gain, direction: maximize, aggregation: minimum, normalization: 20}

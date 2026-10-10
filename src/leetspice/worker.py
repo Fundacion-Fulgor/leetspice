@@ -20,7 +20,13 @@ from typing import Any
 
 from sqlalchemy import select
 
-from .judge import CaceJudge, JudgeResult, LayoutJudge, MockJudge, NgspiceJudge, ProfileJudge
+from .judge import (
+    CharacterizationJudge,
+    JudgeResult,
+    LayoutJudge,
+    MockJudge,
+    NgspiceJudge,
+)
 
 LOGGER = logging.getLogger("leetspice.worker")
 SESSION_MODULES = ("leetspice.database", "leetspice.db")
@@ -122,11 +128,17 @@ def _judge(job: Any, backend: Any) -> tuple[JudgeResult, str]:
             dict(challenge.judge_config),
         )
         return result, type(layout_backend).__name__
-    if challenge is not None and getattr(challenge, "judge_backend", None) == "profile":
-        profile_backend = ProfileJudge()
+    if challenge is not None and getattr(challenge, "judge_backend", None) == "characterization":
+        characterization_backend = CharacterizationJudge()
         netlist, subckt, pins = _payload(job)
-        result = profile_backend.judge(netlist, subckt, pins, dict(challenge.judge_config))
-        return result, type(profile_backend).__name__
+        result = characterization_backend.judge(
+            netlist,
+            subckt,
+            pins,
+            challenge.fixture_path,
+            dict(challenge.judge_config),
+        )
+        return result, type(characterization_backend).__name__
     return backend.judge(*_payload(job)), type(backend).__name__
 
 
@@ -156,6 +168,7 @@ def _store_related_run(job: Any, result: JudgeResult, backend_name: str) -> None
                 value=measurement.value,
                 unit=measurement.unit,
                 passed=measurement.passed,
+                details={"conditions": measurement.conditions} if measurement.conditions else None,
             )
             for measurement in result.measurements
         )
@@ -222,9 +235,9 @@ def process_one(session_factory: Callable[[], Any], model: type[Any], backend: A
             if not isinstance(result, JudgeResult):
                 raise TypeError("judge backend must return JudgeResult")
             _store_result(job, result, backend_name)
-        except Exception as error:  # Persist backend failures rather than losing the job.
+        except Exception:  # Persist backend failures rather than losing the job.
             LOGGER.exception("judge job %s failed", job_id)
-            result = JudgeResult(False, 0.0, message=f"worker error: {error}")
+            result = JudgeResult(False, 0.0, message="worker error: internal judge failure")
             try:
                 _store_result(job, result, backend_name)
                 _set_status(job, ("failed", "rejected"))
@@ -279,7 +292,7 @@ def discover_contract() -> tuple[Callable[[], Any], type[Any]]:
     return session_factory, model
 
 
-def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge | CaceJudge:
+def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge:
     selected = (
         name or os.getenv("LEETSPICE_JUDGE_BACKEND") or os.getenv("RUNNER_BACKEND", "mock")
     ).casefold()
@@ -290,8 +303,6 @@ def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge | Ca
             executable=os.getenv("LEETSPICE_NGSPICE", "ngspice"),
             timeout=float(os.getenv("LEETSPICE_JUDGE_TIMEOUT", "10")),
         )
-    if selected == "cace":
-        return CaceJudge(timeout=float(os.getenv("LEETSPICE_JUDGE_TIMEOUT", "120")))
     raise ValueError(f"unknown judge backend: {selected}")
 
 
@@ -322,7 +333,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--backend",
-        choices=("mock", "ngspice", "cace"),
+        choices=("mock", "ngspice"),
         help="override configured backend",
     )
     args = parser.parse_args(argv)

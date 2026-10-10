@@ -6,7 +6,7 @@
 
 Submit a CMOS inverter as exactly one `.subckt inverter in out vdd vss`. The PoC validator permits MOSFETs, resistors, and capacitors, but no testbench directives, sources, includes, models, or control scripts.
 
-The judge uses CACE 2.11.0 and ngspice with the SG13G2 low-voltage compact
+The judge uses a private server-owned ngspice deck with the SG13G2 low-voltage compact
 models pinned at PDK commit `8d3ee38d4540ed675d3ac08332a51f75258fc3a7`.
 It evaluates `tt`, `ff`, and `ss` process corners at -40, 27, and 125 °C with
 a 1.2 V supply and 10 fF output load.
@@ -18,15 +18,18 @@ a 1.2 V supply and 10 fF output load.
 | `wn` | 0.13 µm to 20 µm | 1 µm |
 | `wp` | 0.13 µm to 40 µm | 2 µm |
 
-## Public PoC checks
+## Public checks
 
 - `tPHL`, `tPLH`, 10-90% rise time, and 90-10% fall time must each be at most 500 ps.
 - Average supply current must be at most 100 µA.
 - Settled logic low must be at most 0.12 V and logic high at least 1.08 V.
 - Every limit must pass at all nine process/temperature combinations.
 
-The score is `1000 / worst propagation delay in ps`, so higher is better after
-all hard limits pass. This is schematic-level simulation, not post-layout
-signoff, mismatch, Monte Carlo, reliability, or manufacturability verification.
+After all hard limits pass, the score is the weighted geometric mean of worst-case
+`max(tPHL, tPLH)` and average current, normalized to 100 ps and 25 uA respectively
+and minimized. Worst-edge delay has twice the weight of current, so an improvement
+to one transition cannot hide a regression in the other. This is schematic-level
+simulation, not post-layout signoff, mismatch, Monte Carlo, reliability, or
+manufacturability verification.
 
-Local development defaults to the mock runner. A mock pass demonstrates the submission workflow only and is not evidence that ngspice evaluated the circuit.
+The production worker runs ngspice directly from the submitted subcircuit and private testbench; Xschem and CACE are not part of the judge path.

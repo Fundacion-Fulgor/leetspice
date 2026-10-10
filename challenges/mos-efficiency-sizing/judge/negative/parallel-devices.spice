@@ -1,0 +1,4 @@
+.subckt mos_efficiency d g s b
+XMN1 d g s b sg13_lv_nmos W=0.6u L=0.26u ng=1 m=1
+XMN2 d g s b sg13_lv_nmos W=0.6u L=0.26u ng=1 m=1
+.ends mos_efficiency
