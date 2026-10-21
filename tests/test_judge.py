@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+import time
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from leetspice.judge import (
     NgspiceJudge,
     validate_netlist,
 )
+from leetspice.judge.layout import _InspectCrashed, _run_isolated
 from leetspice.judge.validator import validate_structure
 from leetspice.worker import configured_backend, process_one
 
@@ -329,10 +331,9 @@ def test_layout_judge_requires_lvs_success_marker(
     setup.parent.mkdir(parents=True)
     magicrc.write_text("rc")
     setup.write_text("setup")
-    # A monkeypatched lambda cannot be pickled into a spawned process, so run
-    # the inspection pool in threads for this test.
-    monkeypatch.setattr("leetspice.judge.layout.ProcessPoolExecutor", ThreadPoolExecutor)
-    monkeypatch.setattr("leetspice.judge.layout.LayoutJudge._inspect", lambda *_args: (12.5, 1))
+    monkeypatch.setattr(
+        "leetspice.judge.layout.LayoutJudge._inspect_isolated", lambda *_args: (12.5, 1)
+    )
     monkeypatch.setattr("leetspice.judge.layout.MagicRunner.drc", lambda *_args: 0)
     extracted = tmp_path / "extracted.spice"
     extracted.write_text(".subckt inverter in out vdd vss\n.ends inverter\n")
@@ -405,3 +406,72 @@ def test_layout_judge_normalizes_pex_pin_order() -> None:
     assert LayoutJudge._normalize_pex_pins(
         netlist, "inverter", ["in", "out", "vdd", "vss"]
     ).startswith(".subckt inverter in out vdd vss\n")
+
+
+def test_run_isolated_returns_result() -> None:
+    assert _run_isolated(divmod, (7, 2), 30) == (3, 1)
+
+
+def test_run_isolated_propagates_value_error() -> None:
+    with pytest.raises(ValueError, match="invalid literal"):
+        _run_isolated(int, ("not-a-number",), 30)
+
+
+def test_run_isolated_reports_crash() -> None:
+    with pytest.raises(_InspectCrashed):
+        _run_isolated(os._exit, (3,), 30)
+
+
+def test_run_isolated_enforces_timeout() -> None:
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_isolated(time.sleep, (30,), 1)
+    assert time.monotonic() - start < 10
+
+
+def _layout_judge_with_inspect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> JudgeResult:
+    challenge = tmp_path / "challenges" / "layout"
+    (challenge / "reference").mkdir(parents=True)
+    (challenge / "reference" / "inverter.spice").write_text(".subckt inverter in out vdd vss\n")
+    pdk_root = tmp_path / "pdk"
+    for name in (
+        "ihp-sg13g2/libs.tech/magic/ihp-sg13g2.magicrc",
+        "ihp-sg13g2/libs.tech/netgen/ihp-sg13g2_setup.tcl",
+    ):
+        (pdk_root / name).parent.mkdir(parents=True, exist_ok=True)
+        (pdk_root / name).write_text("x")
+
+    def fail(*_args: object) -> None:
+        raise error
+
+    monkeypatch.setattr("leetspice.judge.layout.LayoutJudge._inspect_isolated", fail)
+    return LayoutJudge(challenges_path=tmp_path / "challenges", pdk_root=pdk_root, timeout=7).judge(
+        b"gds",
+        "inverter",
+        ["in", "out", "vdd", "vss"],
+        "layout",
+        {"reference_netlist": "reference/inverter.spice"},
+    )
+
+
+def test_layout_judge_surfaces_inspect_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _layout_judge_with_inspect(tmp_path, monkeypatch, ValueError("top cell is empty"))
+    assert result.message == "layout verification failed: top cell is empty"
+
+
+def test_layout_judge_surfaces_inspect_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _layout_judge_with_inspect(
+        tmp_path, monkeypatch, subprocess.TimeoutExpired("layout", 7)
+    )
+    assert result.message == "layout verification timed out after 7s"
+
+
+def test_layout_judge_maps_inspect_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _layout_judge_with_inspect(tmp_path, monkeypatch, _InspectCrashed("boom"))
+    assert result.message == "GDSII parsing failed: malformed layout or crash"
