@@ -81,7 +81,9 @@ class CharacterizationJudge:
                 netlist,
                 re.IGNORECASE | re.MULTILINE,
             ):
-                raise ValueError("PEX netlist contains forbidden SPICE directives injected via GDS labels")
+                raise ValueError(
+                    "PEX netlist contains forbidden SPICE directives injected via GDS labels"
+                )
 
             challenge_root = (self.challenges_path / fixture_path).resolve()
             challenge_root.relative_to(self.challenges_path.resolve())

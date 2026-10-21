@@ -1,7 +1,9 @@
 """SQLAdmin panel with session-based authentication, statistics, and leaderboard."""
 
 from html import escape
+
 import anyio
+
 if not hasattr(anyio, "from_thread"):
     from anyio import from_thread
     anyio.from_thread = from_thread
@@ -17,7 +19,6 @@ from .config import Settings
 from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
 from .models import Challenge, Submission, User
-
 
 # ---------------------------------------------------------------------------
 # Shared page layout
@@ -186,8 +187,8 @@ class CreateChallengeView(BaseView):
     async def post_create_challenge(self, request: Request) -> Response:
         import json as _json
         import shutil
-        import zipfile
         import tempfile
+        import zipfile
         from pathlib import Path as _Path
 
         form = await request.form()
@@ -273,7 +274,9 @@ class CreateChallengeView(BaseView):
                         try:
                             target.relative_to(package_dir.resolve())
                         except ValueError:
-                            raise ValueError(f"ZIP contains path traversal: {entry.filename}")
+                            raise ValueError(
+                                f"ZIP contains path traversal: {entry.filename}"
+                            ) from None
                     zf.extractall(package_dir)
             finally:
                 import os
@@ -380,7 +383,7 @@ class CreateChallengeView(BaseView):
             try:
                 validated_slug, values = _read_package(package_dir)
             except ValueError as ve:
-                raise ValueError(f"Validation failed: {ve}")
+                raise ValueError(f"Validation failed: {ve}") from ve
 
             with SessionLocal() as session:
                 challenge = Challenge(slug=validated_slug, **values)
@@ -404,9 +407,10 @@ class CreateChallengeView(BaseView):
         with SessionLocal() as session:
             challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
             if challenge:
-                from .config import get_settings as _get_settings
-                from pathlib import Path as _Path
                 import json as _json
+                from pathlib import Path as _Path
+
+                from .config import get_settings as _get_settings
                 challenges_root = _Path(_get_settings().challenges_path)
                 manifest_path = challenges_root / slug / "challenge.json"
                 if manifest_path.exists():
@@ -448,10 +452,11 @@ class CreateChallengeView(BaseView):
                     "submission_kind": challenge.submission_kind,
                     "prerequisites": ", ".join(challenge.prerequisites or []),
                 }
-                from .config import get_settings as _get_settings
-                from pathlib import Path as _Path
                 import json as _json
                 import shutil
+                from pathlib import Path as _Path
+
+                from .config import get_settings as _get_settings
                 
                 challenges_root = _Path(_get_settings().challenges_path)
                 package_dir = challenges_root / slug
@@ -460,15 +465,15 @@ class CreateChallengeView(BaseView):
                     try:
                         manifest = _json.loads((package_dir / "challenge.json").read_text(encoding="utf-8"))
                         data["is_active"] = "on" if manifest.get("intended_is_active", False) else ""
-                    except:
+                    except Exception:
                         pass
                     try:
                         data["description"] = (package_dir / "specification.md").read_text(encoding="utf-8")
-                    except:
+                    except Exception:
                         pass
                     try:
                         data["starter_netlist"] = (package_dir / "starter.cir").read_text(encoding="utf-8")
-                    except:
+                    except Exception:
                         pass
                         
                 session.delete(challenge)

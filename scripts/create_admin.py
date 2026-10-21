@@ -2,10 +2,12 @@
 """Create or promote a user to admin. Runs inside the container."""
 
 import sys
+
 from sqlalchemy import select
+
+from leetspice.auth import hash_password
 from leetspice.db import SessionLocal
 from leetspice.models import User
-from leetspice.auth import hash_password
 
 
 def create_admin(email: str, password: str, display_name: str) -> None:
