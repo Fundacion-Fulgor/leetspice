@@ -6,6 +6,8 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import yaml
@@ -75,9 +77,12 @@ class LayoutJudge:
                 gds = work / "submission.gds"
                 gds.write_bytes(payload)
 
+                deadline = time.monotonic() + self.timeout
+
                 def rem_time():
                     t = deadline - time.monotonic()
-                    if t <= 0: raise subprocess.TimeoutExpired("layout", self.timeout)
+                    if t <= 0:
+                        raise subprocess.TimeoutExpired("layout", self.timeout)
                     return t
 
                 try:
@@ -85,7 +90,9 @@ class LayoutJudge:
                         future = pool.submit(self._inspect, gds, expected_top)
                         area, cell_count = future.result(timeout=rem_time())
                 except Exception:
-                    return JudgeResult(False, 0.0, message="GDSII parsing failed: malformed layout or crash")
+                    return JudgeResult(
+                        False, 0.0, message="GDSII parsing failed: malformed layout or crash"
+                    )
 
                 magic = MagicRunner(pdk_root=self.pdk_root, timeout=rem_time())
                 violations = magic.drc(gds, expected_top, work)
