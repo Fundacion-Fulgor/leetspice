@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -328,6 +329,9 @@ def test_layout_judge_requires_lvs_success_marker(
     setup.parent.mkdir(parents=True)
     magicrc.write_text("rc")
     setup.write_text("setup")
+    # A monkeypatched lambda cannot be pickled into a spawned process, so run
+    # the inspection pool in threads for this test.
+    monkeypatch.setattr("leetspice.judge.layout.ProcessPoolExecutor", ThreadPoolExecutor)
     monkeypatch.setattr("leetspice.judge.layout.LayoutJudge._inspect", lambda *_args: (12.5, 1))
     monkeypatch.setattr("leetspice.judge.layout.MagicRunner.drc", lambda *_args: 0)
     extracted = tmp_path / "extracted.spice"
