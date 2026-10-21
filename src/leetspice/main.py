@@ -85,7 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _templates = Jinja2Templates(directory=str(pathlib.Path(__file__).parent / "templates"))
     application.state.limiter = limiter
 
-    async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> HTMLResponse:
+    async def _rate_limit_handler(request: Request, exc: Exception) -> HTMLResponse:
         ctx: dict = {"request": request, "current_user": None, "csrf_token": ""}
         session_data = getattr(request.state, "session", {})
         if session_data:

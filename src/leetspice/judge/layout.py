@@ -85,10 +85,10 @@ class LayoutJudge:
         pdk_root: str | Path | None = None,
         timeout: float = 300.0,
     ) -> None:
-        self.challenges_path = Path(
-            challenges_path or os.getenv("CHALLENGES_PATH", "/app/challenges")
-        )
-        self.pdk_root = Path(pdk_root or os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK"))
+        default_challenges_path = os.getenv("CHALLENGES_PATH", "/app/challenges")
+        default_pdk_root = os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK")
+        self.challenges_path = Path(challenges_path or default_challenges_path)
+        self.pdk_root = Path(pdk_root or default_pdk_root)
         self.timeout = timeout
 
     def judge(

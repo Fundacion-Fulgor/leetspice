@@ -1,6 +1,8 @@
 """SQLAdmin panel with session-based authentication, statistics, and leaderboard."""
 
+from collections.abc import Mapping, Sequence
 from html import escape
+from typing import Any
 
 import anyio
 
@@ -12,6 +14,7 @@ if not hasattr(anyio, "from_thread"):
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy import func, select
+from starlette.datastructures import FormData, UploadFile
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
@@ -20,6 +23,13 @@ from .config import Settings
 from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
 from .models import Challenge, Submission, User
+
+
+def _form_str(form: FormData, key: str, default: str = "") -> str:
+    """Return a text form field, or ``default`` if it is missing or an uploaded file."""
+    value = form.get(key)
+    return value if isinstance(value, str) else default
+
 
 # ---------------------------------------------------------------------------
 # Shared page layout
@@ -213,25 +223,25 @@ class CreateChallengeView(BaseView):
         from pathlib import Path as _Path
 
         form = await request.form()
-        slug = (form.get("slug") or "").strip()
-        title = (form.get("title") or "").strip()
-        summary = (form.get("summary") or "").strip()
-        description = (form.get("description") or "").strip()
-        track = form.get("track", "MOS Foundations")
-        difficulty = form.get("difficulty", "introductory")
-        curriculum_order = int(form.get("curriculum_order") or 0)
-        category = (form.get("category") or "").strip() or track
-        expected_subckt = (form.get("expected_subckt") or "").strip()
-        expected_pins_raw = (form.get("expected_pins") or "").strip()
-        starter_netlist = (form.get("starter_netlist") or "").strip()
-        judge_backend = form.get("judge_backend", "characterization")
-        submission_kind = form.get("submission_kind", "netlist")
-        score_unit = form.get("score_unit", "points")
+        slug = _form_str(form, "slug").strip()
+        title = _form_str(form, "title").strip()
+        summary = _form_str(form, "summary").strip()
+        description = _form_str(form, "description").strip()
+        track = _form_str(form, "track", "MOS Foundations")
+        difficulty = _form_str(form, "difficulty", "introductory")
+        curriculum_order = int(_form_str(form, "curriculum_order") or 0)
+        category = _form_str(form, "category").strip() or track
+        expected_subckt = _form_str(form, "expected_subckt").strip()
+        expected_pins_raw = _form_str(form, "expected_pins").strip()
+        starter_netlist = _form_str(form, "starter_netlist").strip()
+        judge_backend = _form_str(form, "judge_backend", "characterization")
+        submission_kind = _form_str(form, "submission_kind", "netlist")
+        score_unit = _form_str(form, "score_unit", "points")
         lower_is_better = form.get("lower_is_better") == "on"
         is_active = form.get("is_active") == "on"
         is_ranked = form.get("is_ranked") == "on"
-        verification_version = int(form.get("verification_version") or 1)
-        prerequisites_raw = (form.get("prerequisites") or "").strip()
+        verification_version = int(_form_str(form, "verification_version") or 1)
+        prerequisites_raw = _form_str(form, "prerequisites").strip()
 
         judge_zip = form.get("judge_zip")
 
@@ -258,7 +268,7 @@ class CreateChallengeView(BaseView):
                 "Slug must be lowercase, alphanumeric, separated by hyphens (e.g. basic-current-mirror)."
             )
 
-        if not judge_zip or not hasattr(judge_zip, "read"):
+        if not isinstance(judge_zip, UploadFile):
             return _err(
                 "You must upload a ZIP file containing the judge/ folder (definition.yaml + test circuits)."
             )
@@ -361,7 +371,7 @@ class CreateChallengeView(BaseView):
             design_files_assets = []
             design_files_raw = form.getlist("design_files")
             for df in design_files_raw:
-                if not hasattr(df, "read") or not df.filename:
+                if not isinstance(df, UploadFile) or not df.filename:
                     continue
                 fname = _Path(df.filename).name
                 if not fname:
@@ -450,7 +460,7 @@ class CreateChallengeView(BaseView):
     @expose("/create-challenge-confirm", methods=["POST"])
     async def confirm_create_challenge(self, request: Request) -> Response:
         form = await request.form()
-        slug = (form.get("slug") or "").strip()
+        slug = _form_str(form, "slug").strip()
         if not slug:
             return RedirectResponse("/admin/challenge/list", status_code=302)
 
@@ -479,7 +489,7 @@ class CreateChallengeView(BaseView):
     @expose("/create-challenge-cancel", methods=["POST"])
     async def cancel_create_challenge(self, request: Request) -> Response:
         form = await request.form()
-        slug = (form.get("slug") or "").strip()
+        slug = _form_str(form, "slug").strip()
         if not slug:
             return RedirectResponse("/admin/create-challenge", status_code=302)
 
@@ -551,7 +561,9 @@ class CreateChallengeView(BaseView):
         )
 
 
-def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
+def _render_create_challenge_form(
+    error: str | None = None, data: Mapping[str, Any] | None = None
+) -> str:
     data = data or {}
     err_html = f'<div class="alert alert-danger">{escape(error)}</div>' if error else ""
 
@@ -1127,7 +1139,7 @@ def _render_stats_page(
 
 def _render_leaderboard_page(
     leaders: list,
-    challenges: list,
+    challenges: Sequence[Challenge],
     max_points: float,
     total_users: int,
     users_with_submissions: int,
@@ -1234,8 +1246,8 @@ def _render_leaderboard_page(
 
 
 def _render_activity_page(
-    recent: list,
-    recent_users: list,
+    recent: Sequence[Any],
+    recent_users: Sequence[User],
     total_today: int,
     accepted_today: int,
 ) -> str:

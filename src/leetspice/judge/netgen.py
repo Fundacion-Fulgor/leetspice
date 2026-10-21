@@ -18,7 +18,8 @@ class NetgenRunner:
         executable: str = "netgen",
         timeout: float = 300,
     ) -> None:
-        self.pdk_root = Path(pdk_root or os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK"))
+        default_pdk_root = os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK")
+        self.pdk_root = Path(pdk_root or default_pdk_root)
         self.executable = executable
         self.timeout = timeout
         self.setup = self.pdk_root / "ihp-sg13g2" / "libs.tech" / "netgen" / "ihp-sg13g2_setup.tcl"

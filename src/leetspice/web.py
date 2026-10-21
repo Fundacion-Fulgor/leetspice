@@ -15,6 +15,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -202,7 +203,7 @@ def global_board(request: Request, db: Annotated[Session, Depends(get_session)])
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -279,7 +280,7 @@ def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) ->
 
 
 @router.get("/profile", response_class=HTMLResponse)
-def profile_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+def profile_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -292,7 +293,7 @@ def profile_update(
     db: Annotated[Session, Depends(get_session)],
     display_name: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = _current_user(request, db)
     if user is None:
@@ -337,7 +338,7 @@ def profile_password(
     new_password: Annotated[str, Form()],
     confirm_password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = _current_user(request, db)
     if user is None:
@@ -375,7 +376,7 @@ def register(
     display_name: Annotated[str, Form()],
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     normalized_email = email.strip().lower()
     name = display_name.strip()
@@ -415,7 +416,7 @@ def login(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = db.scalar(select(User).where(User.email == email.strip().lower()))
     if user is None or not verify_password(user.password_hash, password):
@@ -439,7 +440,7 @@ def logout(request: Request, csrf_token: Annotated[str, Form()]) -> RedirectResp
 @router.get("/challenges/{slug}", response_class=HTMLResponse)
 def challenge_detail(
     slug: str, request: Request, db: Annotated[Session, Depends(get_session)]
-) -> HTMLResponse:
+) -> Response:
     user = _current_user(request, db)
     is_admin = user is not None and user.is_admin
 
@@ -535,7 +536,7 @@ async def submit(
     csrf_token: Annotated[str, Form()],
     netlist: Annotated[str, Form()] = "",
     layout: Annotated[UploadFile | None, File()] = None,
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = _current_user(request, db)
     if user is None:
@@ -673,7 +674,7 @@ def my_submissions(
     db: Annotated[Session, Depends(get_session)],
     page: Annotated[int, Query(ge=1)] = 1,
     status_filter: Annotated[str, Query(alias="status")] = "all",
-) -> HTMLResponse:
+) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)

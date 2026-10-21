@@ -28,11 +28,11 @@ class CharacterizationJudge:
         executable: str = "ngspice",
         pdk_root: str | Path | None = None,
     ) -> None:
-        self.challenges_path = Path(
-            challenges_path or os.getenv("CHALLENGES_PATH", "/app/challenges")
-        )
+        default_challenges_path = os.getenv("CHALLENGES_PATH", "/app/challenges")
+        default_pdk_root = os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK")
+        self.challenges_path = Path(challenges_path or default_challenges_path)
         self.executable = executable
-        self.pdk_root = Path(pdk_root or os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK"))
+        self.pdk_root = Path(pdk_root or default_pdk_root)
 
     def judge(
         self,

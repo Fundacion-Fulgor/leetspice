@@ -100,11 +100,12 @@ def _payload(job: Any) -> tuple[str, str, list[str]]:
     if not isinstance(netlist, str) or not isinstance(subckt, str):
         raise ValueError("job must provide netlist text and an expected subcircuit name")
     if isinstance(pins, str):
+        pins_text = pins
         try:
-            decoded = json.loads(pins)
-            pins = decoded if isinstance(decoded, list) else pins.split()
+            decoded = json.loads(pins_text)
+            pins = decoded if isinstance(decoded, list) else pins_text.split()
         except json.JSONDecodeError:
-            pins = pins.replace(",", " ").split()
+            pins = pins_text.replace(",", " ").split()
     if not isinstance(pins, (list, tuple)) or not all(isinstance(pin, str) for pin in pins):
         raise ValueError("job must provide an ordered pin list")
     return netlist, subckt, list(pins)
@@ -144,6 +145,8 @@ def _judge(job: Any, backend: Any) -> tuple[JudgeResult, str]:
 
 def _store_related_run(job: Any, result: JudgeResult, backend_name: str) -> None:
     relationship = getattr(type(job), "judge_runs", None)
+    if relationship is None:
+        return
     try:
         run_type = relationship.property.mapper.class_
     except AttributeError:
@@ -157,10 +160,12 @@ def _store_related_run(job: Any, result: JudgeResult, backend_name: str) -> None
         finished_at=now,
     )
     measurement_relationship = getattr(run_type, "measurements", None)
-    try:
-        measurement_type = measurement_relationship.property.mapper.class_
-    except AttributeError:
-        measurement_type = None
+    measurement_type = None
+    if measurement_relationship is not None:
+        try:
+            measurement_type = measurement_relationship.property.mapper.class_
+        except AttributeError:
+            pass
     if measurement_type is not None:
         run.measurements.extend(
             measurement_type(
@@ -185,10 +190,11 @@ def _store_result(job: Any, result: JudgeResult, backend_name: str) -> None:
             if hasattr(item, name):
                 column = getattr(type(item), name, None)
                 python_type = None
-                try:
-                    python_type = column.type.python_type
-                except (AttributeError, NotImplementedError):
-                    pass
+                if column is not None:
+                    try:
+                        python_type = column.type.python_type
+                    except (AttributeError, NotImplementedError):
+                        pass
                 value = json.dumps(result.to_dict()) if python_type is str else result.to_dict()
                 setattr(item, name, value)
                 break
@@ -293,9 +299,8 @@ def discover_contract() -> tuple[Callable[[], Any], type[Any]]:
 
 
 def configured_backend(name: str | None = None) -> MockJudge | NgspiceJudge:
-    selected = (
-        name or os.getenv("LEETSPICE_JUDGE_BACKEND") or os.getenv("RUNNER_BACKEND", "mock")
-    ).casefold()
+    default_backend = os.getenv("RUNNER_BACKEND", "mock")
+    selected = (name or os.getenv("LEETSPICE_JUDGE_BACKEND") or default_backend).casefold()
     if selected == "mock":
         return MockJudge()
     if selected == "ngspice":
