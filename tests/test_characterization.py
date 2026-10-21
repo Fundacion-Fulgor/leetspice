@@ -221,13 +221,9 @@ def test_version_two_scoring_is_normalized_weighted_geomean(tmp_path: Path) -> N
         Measurement("gain_tt_27C", 20, conditions={"corner": "tt", "temperature": 27}),
         Measurement("gain_ss_125C", 10, conditions={"corner": "ss", "temperature": 125}),
         Measurement("current_tt_27C", 0.00025, conditions={"corner": "tt", "temperature": 27}),
-        Measurement(
-            "current_ss_125C", 0.0005, conditions={"corner": "ss", "temperature": 125}
-        ),
+        Measurement("current_ss_125C", 0.0005, conditions={"corner": "ss", "temperature": 125}),
         Measurement("output_tt_27C", 0.6, conditions={"corner": "tt", "temperature": 27}),
-        Measurement(
-            "output_ss_125C", 0.8, conditions={"corner": "ss", "temperature": 125}
-        ),
+        Measurement("output_ss_125C", 0.8, conditions={"corner": "ss", "temperature": 125}),
     ]
 
     # All three normalized objective factors are one.

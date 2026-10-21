@@ -62,10 +62,14 @@ def main() -> int:
     judge = CharacterizationJudge(challenges_path=args.challenges, pdk_root=args.pdk_root)
     reference = run_case(judge, package, manifest, package / "judge/reference.spice")
     starter = run_case(judge, package, manifest, package / str(manifest["starter_file"]))
-    negatives = [
-        run_case(judge, package, manifest, path)
-        for path in sorted((package / "judge/negative").glob("*.spice"))
-    ] if (package / "judge/negative").is_dir() else []
+    negatives = (
+        [
+            run_case(judge, package, manifest, path)
+            for path in sorted((package / "judge/negative").glob("*.spice"))
+        ]
+        if (package / "judge/negative").is_dir()
+        else []
+    )
     version_output = subprocess.run(
         ["ngspice", "--version"], capture_output=True, text=True, check=False
     ).stdout.splitlines()

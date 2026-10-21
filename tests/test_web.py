@@ -78,12 +78,9 @@ def test_guided_challenge_has_no_leaderboard_panel(client):
 
 def test_challenge_renders_safe_collapsible_markdown(client):
     with db.SessionLocal() as session:
-        challenge = session.scalar(
-            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
-        )
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
         challenge.description = (
-            "# Hidden title\n\n## Limits\n\n- **Delay:** `500 ps`\n\n"
-            "<script>alert(1)</script>"
+            "# Hidden title\n\n## Limits\n\n- **Delay:** `500 ps`\n\n<script>alert(1)</script>"
         )
         session.commit()
 
@@ -97,9 +94,7 @@ def test_challenge_renders_safe_collapsible_markdown(client):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
 
 
-def test_submission_preserves_netlist_and_is_private(
-    client, csrf, register, no_prerequisites
-):
+def test_submission_preserves_netlist_and_is_private(client, csrf, register, no_prerequisites):
     register()
     page = client.get("/challenges/demo-cmos-inverter")
     netlist = ".subckt inverter in out vdd vss\nR1 vdd out  10k\n.ends inverter\n"

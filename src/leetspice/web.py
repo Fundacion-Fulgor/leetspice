@@ -61,7 +61,9 @@ def _completed_slugs(db: Session, user: User | None) -> set[str]:
 
 
 def _challenge_progress(
-    db: Session, user: User | None, challenges: Sequence[Challenge],
+    db: Session,
+    user: User | None,
+    challenges: Sequence[Challenge],
 ) -> dict[str, str]:
     """Map every challenge slug to a progress token for the logged-in user.
 
@@ -94,15 +96,15 @@ def _challenge_progress(
 
 
 def _missing_prerequisites(
-    db: Session, challenge: Challenge, completed: set[str],
+    db: Session,
+    challenge: Challenge,
+    completed: set[str],
 ) -> list[Challenge]:
     """Return the *Challenge* objects the user still needs to complete."""
     missing_slugs = [slug for slug in (challenge.prerequisites or []) if slug not in completed]
     if not missing_slugs:
         return []
-    return list(
-        db.scalars(select(Challenge).where(Challenge.slug.in_(missing_slugs))).all()
-    )
+    return list(db.scalars(select(Challenge).where(Challenge.slug.in_(missing_slugs))).all())
 
 
 def _context(request: Request, db: Session, **values: object) -> dict[str, object]:
@@ -159,7 +161,8 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
         request,
         "catalog.html",
         _context(
-            request, db,
+            request,
+            db,
             tracks=tracks,
             challenges_count=len(challenges),
             progress=progress,
@@ -207,26 +210,35 @@ def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) ->
     leaders = global_leaderboard(db)
     my_ranking = next((leader for leader in leaders if leader.user.id == user.id), None)
 
-    total_challenges = db.scalar(
-        select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
-    ) or 0
-    completed_challenges = db.scalar(
-        select(func.count(func.distinct(Submission.challenge_id))).where(
-            Submission.user_id == user.id, Submission.status == "accepted"
+    total_challenges = (
+        db.scalar(select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))) or 0
+    )
+    completed_challenges = (
+        db.scalar(
+            select(func.count(func.distinct(Submission.challenge_id))).where(
+                Submission.user_id == user.id, Submission.status == "accepted"
+            )
         )
-    ) or 0
+        or 0
+    )
 
-    resolved_count = db.scalar(
-        select(func.count(Submission.id)).where(
-            Submission.user_id == user.id,
-            Submission.status.in_(("accepted", "failed", "rejected")),
+    resolved_count = (
+        db.scalar(
+            select(func.count(Submission.id)).where(
+                Submission.user_id == user.id,
+                Submission.status.in_(("accepted", "failed", "rejected")),
+            )
         )
-    ) or 0
-    accepted_count = db.scalar(
-        select(func.count(Submission.id)).where(
-            Submission.user_id == user.id, Submission.status == "accepted"
+        or 0
+    )
+    accepted_count = (
+        db.scalar(
+            select(func.count(Submission.id)).where(
+                Submission.user_id == user.id, Submission.status == "accepted"
+            )
         )
-    ) or 0
+        or 0
+    )
     success_rate = (accepted_count / resolved_count * 100) if resolved_count else 0.0
 
     recent = db.scalars(
@@ -238,9 +250,7 @@ def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) ->
     ).all()
 
     submission_dates = db.scalars(
-        select(func.distinct(func.date(Submission.created_at))).where(
-            Submission.user_id == user.id
-        )
+        select(func.distinct(func.date(Submission.created_at))).where(Submission.user_id == user.id)
     ).all()
     today = date.today()
     date_set = {d if isinstance(d, date) else date.fromisoformat(str(d)) for d in submission_dates}
@@ -445,9 +455,7 @@ def challenge_detail(
         replacement = next(
             (
                 item
-                for item in db.scalars(
-                    select(Challenge).where(Challenge.is_active.is_(True))
-                ).all()
+                for item in db.scalars(select(Challenge).where(Challenge.is_active.is_(True))).all()
                 if slug in item.retired_slugs
             ),
             None,
@@ -462,7 +470,7 @@ def challenge_detail(
     prereqs = challenge.prerequisites or []
     prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
     missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
-    
+
     is_preview = request.query_params.get("preview") == "1"
 
     return templates.TemplateResponse(

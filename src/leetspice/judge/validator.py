@@ -88,11 +88,7 @@ def _validate_device(tokens: list[str], line_number: int) -> None:
         valid_value = _NUMBER.fullmatch(value) is not None
         if model in _SG13G2_HBT_MODELS and folded_name == "nx":
             valid_value = value.isdigit() and int(value) >= 1
-        if (
-            folded_name not in parameters
-            or folded_name in seen_parameters
-            or not valid_value
-        ):
+        if folded_name not in parameters or folded_name in seen_parameters or not valid_value:
             raise ValueError(f"line {line_number}: invalid MOS parameter {parameter!r}")
         seen_parameters.add(folded_name)
 

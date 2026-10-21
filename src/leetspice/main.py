@@ -71,7 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.include_router(router)
     setup_admin(application, db.engine, settings)
-    
+
     # Configure SlowAPI rate limiting
     import pathlib
 
@@ -94,10 +94,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if user_id:
                 with db.SessionLocal() as s:
                     from .models import User
+
                     ctx["current_user"] = s.get(User, user_id)
-        return _templates.TemplateResponse(
-            request, "rate_limit.html", ctx, status_code=429
-        )
+        return _templates.TemplateResponse(request, "rate_limit.html", ctx, status_code=429)
 
     application.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
     application.add_middleware(SlowAPIMiddleware)

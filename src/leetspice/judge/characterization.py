@@ -76,6 +76,7 @@ class CharacterizationJudge:
 
         try:
             import re
+
             if re.search(
                 r"^\s*\.(system|shell|control|exec|include|lib|loadmodule|osdi|load|rawfile|save)\b",
                 netlist,
