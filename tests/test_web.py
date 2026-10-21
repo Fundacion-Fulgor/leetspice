@@ -70,7 +70,10 @@ def test_challenge_renders_safe_collapsible_markdown(client):
         challenge = session.scalar(
             select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
         )
-        challenge.description = "# Hidden title\n\n## Limits\n\n- **Delay:** `500 ps`\n\n<script>alert(1)</script>"
+        challenge.description = (
+            "# Hidden title\n\n## Limits\n\n- **Delay:** `500 ps`\n\n"
+            "<script>alert(1)</script>"
+        )
         session.commit()
 
     response = client.get("/challenges/demo-cmos-inverter")
