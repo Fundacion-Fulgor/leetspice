@@ -463,15 +463,15 @@ class CreateChallengeView(BaseView):
                     try:
                         manifest = _json.loads((package_dir / "challenge.json").read_text(encoding="utf-8"))
                         data["is_active"] = "on" if manifest.get("intended_is_active", False) else ""
-                    except:
+                    except Exception:
                         pass
                     try:
                         data["description"] = (package_dir / "specification.md").read_text(encoding="utf-8")
-                    except:
+                    except Exception:
                         pass
                     try:
                         data["starter_netlist"] = (package_dir / "starter.cir").read_text(encoding="utf-8")
-                    except:
+                    except Exception:
                         pass
                         
                 session.delete(challenge)
