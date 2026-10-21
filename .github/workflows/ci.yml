@@ -28,11 +28,54 @@ jobs:
       - name: Install dependencies
         run: pip install -e '.[dev]'
 
-      - name: Lint
-        run: python -m ruff check .
-
       - name: Tests
         run: python -m pytest --tb=short
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Keep in sync with the ruff pin in pyproject.toml.
+      - name: Install ruff
+        run: pip install ruff==0.17.1
+
+      - name: Ruff check
+        run: ruff check .
+
+      - name: Ruff format
+        if: ${{ !cancelled() }}
+        run: ruff format --check .
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pip install -e '.[dev]'
+
+      - name: Mypy
+        run: mypy
 
   migrations:
     name: migrations
@@ -72,5 +115,5 @@ jobs:
 
       - name: Run Alembic migrations
         env:
-          DATABASE_URL: postgresql://leetspice:leetspice@localhost:5432/leetspice_test
+          DATABASE_URL: postgresql+psycopg://leetspice:leetspice@localhost:5432/leetspice_test
         run: alembic upgrade head

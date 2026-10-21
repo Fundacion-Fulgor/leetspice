@@ -10,22 +10,24 @@ import os
 
 # Only these variables are forwarded from the host environment.
 # All EDA-specific overrides (HOME, PDK_ROOT, PDK) are set at call-site.
-_ALLOWED_KEYS = frozenset({
-    "PATH",
-    "LANG",
-    "LC_ALL",
-    "TERM",
-    "TZ",
-    "TMPDIR",
-    "TEMP",
-    "TMP",
-    "USER",
-    "LOGNAME",
-    "DISPLAY",
-    "XDG_RUNTIME_DIR",
-    "LD_LIBRARY_PATH",
-    "PYTHONPATH",
-})
+_ALLOWED_KEYS = frozenset(
+    {
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "TERM",
+        "TZ",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "USER",
+        "LOGNAME",
+        "DISPLAY",
+        "XDG_RUNTIME_DIR",
+        "LD_LIBRARY_PATH",
+        "PYTHONPATH",
+    }
+)
 
 
 def safe_env(**overrides: str) -> dict[str, str]:

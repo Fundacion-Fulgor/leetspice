@@ -1,12 +1,23 @@
+import re
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 from leetspice import db
 from leetspice.models import Challenge, Submission, User
 
 CHALLENGES = Path(__file__).parents[1] / "challenges"
+
+
+@pytest.fixture
+def no_prerequisites(client):
+    """Unlock every challenge so submission tests do not depend on progress gating."""
+    with db.SessionLocal() as session:
+        for challenge in session.scalars(select(Challenge)):
+            challenge.prerequisites = []
+        session.commit()
 
 
 def test_registration_login_logout_and_csrf(client, csrf, register):
@@ -67,10 +78,10 @@ def test_guided_challenge_has_no_leaderboard_panel(client):
 
 def test_challenge_renders_safe_collapsible_markdown(client):
     with db.SessionLocal() as session:
-        challenge = session.scalar(
-            select(Challenge).where(Challenge.slug == "demo-cmos-inverter")
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
+        challenge.description = (
+            "# Hidden title\n\n## Limits\n\n- **Delay:** `500 ps`\n\n<script>alert(1)</script>"
         )
-        challenge.description = "# Hidden title\n\n## Limits\n\n- **Delay:** `500 ps`\n\n<script>alert(1)</script>"
         session.commit()
 
     response = client.get("/challenges/demo-cmos-inverter")
@@ -83,7 +94,7 @@ def test_challenge_renders_safe_collapsible_markdown(client):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
 
 
-def test_submission_preserves_netlist_and_is_private(client, csrf, register):
+def test_submission_preserves_netlist_and_is_private(client, csrf, register, no_prerequisites):
     register()
     page = client.get("/challenges/demo-cmos-inverter")
     netlist = ".subckt inverter in out vdd vss\nR1 vdd out  10k\n.ends inverter\n"
@@ -110,7 +121,7 @@ def test_submission_preserves_netlist_and_is_private(client, csrf, register):
     assert client.get(f"{submission_url}/status").status_code == 404
 
 
-def test_empty_submission_is_rejected(client, csrf, register):
+def test_empty_submission_is_rejected(client, csrf, register, no_prerequisites):
     register()
     page = client.get("/challenges/demo-cmos-inverter")
     response = client.post(
@@ -315,7 +326,7 @@ def test_global_leaderboard_is_public_and_linked(client):
 
 def test_stylesheet_url_is_versioned(client):
     response = client.get("/")
-    assert "/static/app.css?v=7" in response.text
+    assert re.search(r"/static/app\.css\?v=\d+", response.text)
     assert "Fundación Fulgor" in response.text
     assert "A Fulgor Foundation project" in response.text
     assert "/static/fulgor-mark.png" in response.text

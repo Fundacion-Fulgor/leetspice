@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import re
 import subprocess
 import tempfile
+import time
+from collections.abc import Callable
+from multiprocessing.connection import Connection
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -27,6 +32,50 @@ MOS_PATTERN = re.compile(
 MOS_PARAMETER_PATTERN = re.compile(r"\b([WL])\s*=\s*([^\s]+)", re.IGNORECASE)
 
 
+class _InspectCrashed(Exception):
+    """The isolated worker died without reporting a result."""
+
+
+def _child_main(conn: Connection, target: Callable[..., Any], args: tuple[Any, ...]) -> None:
+    try:
+        # Only ValueError text is reported back; other failures exit non-zero so
+        # internal details such as paths are not leaked.
+        try:
+            conn.send(("ok", target(*args)))
+        except ValueError as error:
+            conn.send(("error", str(error)))
+    finally:
+        conn.close()
+
+
+def _run_isolated(target: Callable[..., Any], args: tuple[Any, ...], timeout: float) -> Any:
+    """Run target(*args) in a spawned child so native crashes and hangs stay contained."""
+    ctx = multiprocessing.get_context("spawn")
+    recv, send = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=_child_main, args=(send, target, args), daemon=True)
+    try:
+        proc.start()
+        send.close()  # parent's copy; lets recv() see EOF if the child dies
+        if not recv.poll(timeout):
+            proc.kill()
+            raise subprocess.TimeoutExpired("layout", timeout)
+        try:
+            kind, value = recv.recv()
+        except (EOFError, OSError):
+            raise _InspectCrashed("worker exited without a result") from None
+        if kind == "error":
+            raise ValueError(value)
+        return value
+    finally:
+        if proc.is_alive():
+            proc.kill()
+        if proc.pid is not None:
+            proc.join()
+        recv.close()
+        send.close()
+        proc.close()
+
+
 class LayoutJudge:
     """Run server-owned SG13G2 DRC and LVS decks against a bounded GDSII payload."""
 
@@ -36,10 +85,10 @@ class LayoutJudge:
         pdk_root: str | Path | None = None,
         timeout: float = 300.0,
     ) -> None:
-        self.challenges_path = Path(
-            challenges_path or os.getenv("CHALLENGES_PATH", "/app/challenges")
-        )
-        self.pdk_root = Path(pdk_root or os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK"))
+        default_challenges_path = os.getenv("CHALLENGES_PATH", "/app/challenges")
+        default_pdk_root = os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK")
+        self.challenges_path = Path(challenges_path or default_challenges_path)
+        self.pdk_root = Path(pdk_root or default_pdk_root)
         self.timeout = timeout
 
     def judge(
@@ -75,17 +124,20 @@ class LayoutJudge:
                 gds = work / "submission.gds"
                 gds.write_bytes(payload)
 
+                deadline = time.monotonic() + self.timeout
+
                 def rem_time():
                     t = deadline - time.monotonic()
-                    if t <= 0: raise subprocess.TimeoutExpired("layout", self.timeout)
+                    if t <= 0:
+                        raise subprocess.TimeoutExpired("layout", self.timeout)
                     return t
 
                 try:
-                    with ProcessPoolExecutor(max_workers=1) as pool:
-                        future = pool.submit(self._inspect, gds, expected_top)
-                        area, cell_count = future.result(timeout=rem_time())
-                except Exception:
-                    return JudgeResult(False, 0.0, message="GDSII parsing failed: malformed layout or crash")
+                    area, cell_count = self._inspect_isolated(gds, expected_top, rem_time())
+                except _InspectCrashed:
+                    return JudgeResult(
+                        False, 0.0, message="GDSII parsing failed: malformed layout or crash"
+                    )
 
                 magic = MagicRunner(pdk_root=self.pdk_root, timeout=rem_time())
                 violations = magic.drc(gds, expected_top, work)
@@ -100,7 +152,7 @@ class LayoutJudge:
                         ),
                         f"DRC failed with {violations} violation(s)",
                     )
-                
+
                 magic.timeout = rem_time()
                 extracted = magic.extract_lvs(gds, expected_top, work)
                 try:
@@ -123,7 +175,7 @@ class LayoutJudge:
                             expected_pins,
                         ),
                     )
-                
+
                 magic.timeout = rem_time()
                 pex = magic.extract_pex(
                     gds, expected_top, work, str(config.get("pex_mode", "coupled_c"))
@@ -195,6 +247,9 @@ class LayoutJudge:
                 raise ValueError(self._drc_failure(completed.stdout))
             output = completed.stdout[-8_192:]
             raise ValueError(f"{stage} failed: {output}")
+
+    def _inspect_isolated(self, gds: Path, expected_top: str, timeout: float) -> tuple[float, int]:
+        return _run_isolated(LayoutJudge._inspect, (gds, expected_top), timeout)
 
     @staticmethod
     def _inspect(gds: Path, expected_top: str) -> tuple[float, int]:

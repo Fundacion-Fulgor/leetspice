@@ -59,12 +59,16 @@ def global_leaderboard(session: Session) -> list[GlobalLeader]:
     for submission in submissions:
         if submission.verification_version != current_versions[submission.challenge_id]:
             continue
+        score = submission.score
+        if score is None:
+            continue
         key = (submission.user_id, submission.challenge_id)
         previous = best.get(key)
-        if previous is None or (
-            submission.score < previous.score
+        previous_score = previous.score if previous is not None else None
+        if previous_score is None or (
+            score < previous_score
             if submission.challenge.lower_is_better
-            else submission.score > previous.score
+            else score > previous_score
         ):
             best[key] = submission
 
@@ -77,14 +81,15 @@ def global_leaderboard(session: Session) -> list[GlobalLeader]:
     for challenge in challenges:
         entries = by_challenge.get(challenge.id, [])
         count = len(entries)
+        entry_scores = [entry.score for entry in entries if entry.score is not None]
         weight = DIFFICULTY_WEIGHTS[challenge.difficulty]
         for submission in entries:
             assert submission.score is not None
             no_better = sum(
-                other.score >= submission.score
+                other_score >= submission.score
                 if challenge.lower_is_better
-                else other.score <= submission.score
-                for other in entries
+                else other_score <= submission.score
+                for other_score in entry_scores
             )
             percentile = 100.0 * no_better / count
             users[submission.user_id] = submission.user

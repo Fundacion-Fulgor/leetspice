@@ -1,14 +1,20 @@
 """SQLAdmin panel with session-based authentication, statistics, and leaderboard."""
 
+from collections.abc import Mapping, Sequence
 from html import escape
+from typing import Any
+
 import anyio
+
 if not hasattr(anyio, "from_thread"):
     from anyio import from_thread
+
     anyio.from_thread = from_thread
 
 from sqladmin import Admin, BaseView, ModelView, expose
 from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy import func, select
+from starlette.datastructures import FormData, UploadFile
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
@@ -17,6 +23,12 @@ from .config import Settings
 from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
 from .models import Challenge, Submission, User
+
+
+def _form_str(form: FormData, key: str, default: str = "") -> str:
+    """Return a text form field, or ``default`` if it is missing or an uploaded file."""
+    value = form.get(key)
+    return value if isinstance(value, str) else default
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +100,7 @@ def _page(title: str, icon: str, subtitle: str, body: str) -> str:
 # Authentication
 # ---------------------------------------------------------------------------
 
+
 class AdminAuth(AuthenticationBackend):
     def __init__(self, settings: Settings) -> None:
         super().__init__(secret_key=settings.secret_key)
@@ -115,6 +128,7 @@ class AdminAuth(AuthenticationBackend):
 # Model views
 # ---------------------------------------------------------------------------
 
+
 class UserAdmin(ModelView, model=User):
     name = "User"
     name_plural = "Users"
@@ -132,14 +146,24 @@ class ChallengeAdmin(ModelView, model=Challenge):
     name_plural = "Challenges"
     icon = "fa-solid fa-bolt"
     column_list = [
-        Challenge.id, Challenge.slug, Challenge.title, Challenge.track,
-        Challenge.difficulty, Challenge.is_active, Challenge.is_ranked,
+        Challenge.id,
+        Challenge.slug,
+        Challenge.title,
+        Challenge.track,
+        Challenge.difficulty,
+        Challenge.is_active,
+        Challenge.is_ranked,
         Challenge.curriculum_order,
     ]
     column_searchable_list = [Challenge.slug, Challenge.title, Challenge.track]
     column_sortable_list = [
-        Challenge.id, Challenge.slug, Challenge.title, Challenge.track,
-        Challenge.difficulty, Challenge.is_active, Challenge.curriculum_order,
+        Challenge.id,
+        Challenge.slug,
+        Challenge.title,
+        Challenge.track,
+        Challenge.difficulty,
+        Challenge.is_active,
+        Challenge.curriculum_order,
     ]
     column_default_sort = [(Challenge.curriculum_order, False), (Challenge.id, False)]
     form_excluded_columns = [Challenge.submissions]
@@ -153,13 +177,20 @@ class SubmissionAdmin(ModelView, model=Submission):
     name_plural = "Submissions"
     icon = "fa-solid fa-paper-plane"
     column_list = [
-        Submission.id, Submission.user_id, Submission.challenge_id,
-        Submission.status, Submission.score, Submission.submission_kind,
+        Submission.id,
+        Submission.user_id,
+        Submission.challenge_id,
+        Submission.status,
+        Submission.score,
+        Submission.submission_kind,
         Submission.created_at,
     ]
     column_searchable_list = [Submission.status]
     column_sortable_list = [
-        Submission.id, Submission.status, Submission.score, Submission.created_at,
+        Submission.id,
+        Submission.status,
+        Submission.score,
+        Submission.created_at,
     ]
     column_default_sort = (Submission.created_at, True)
     form_excluded_columns = [Submission.payload_binary]
@@ -167,11 +198,10 @@ class SubmissionAdmin(ModelView, model=Submission):
     can_delete = True
 
 
-
-
 # ---------------------------------------------------------------------------
 # Create Challenge view
 # ---------------------------------------------------------------------------
+
 
 class CreateChallengeView(BaseView):
     name = "New Challenge"
@@ -180,58 +210,78 @@ class CreateChallengeView(BaseView):
     @expose("/create-challenge", methods=["GET"])
     async def get_create_challenge(self, request: Request) -> Response:
         form_html = _render_create_challenge_form()
-        return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+        return HTMLResponse(
+            _page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html)
+        )
 
     @expose("/create-challenge", methods=["POST"])
     async def post_create_challenge(self, request: Request) -> Response:
         import json as _json
         import shutil
-        import zipfile
         import tempfile
+        import zipfile
         from pathlib import Path as _Path
 
         form = await request.form()
-        slug = (form.get("slug") or "").strip()
-        title = (form.get("title") or "").strip()
-        summary = (form.get("summary") or "").strip()
-        description = (form.get("description") or "").strip()
-        track = form.get("track", "MOS Foundations")
-        difficulty = form.get("difficulty", "introductory")
-        curriculum_order = int(form.get("curriculum_order") or 0)
-        category = (form.get("category") or "").strip() or track
-        expected_subckt = (form.get("expected_subckt") or "").strip()
-        expected_pins_raw = (form.get("expected_pins") or "").strip()
-        starter_netlist = (form.get("starter_netlist") or "").strip()
-        judge_backend = form.get("judge_backend", "characterization")
-        submission_kind = form.get("submission_kind", "netlist")
-        score_unit = form.get("score_unit", "points")
+        slug = _form_str(form, "slug").strip()
+        title = _form_str(form, "title").strip()
+        summary = _form_str(form, "summary").strip()
+        description = _form_str(form, "description").strip()
+        track = _form_str(form, "track", "MOS Foundations")
+        difficulty = _form_str(form, "difficulty", "introductory")
+        curriculum_order = int(_form_str(form, "curriculum_order") or 0)
+        category = _form_str(form, "category").strip() or track
+        expected_subckt = _form_str(form, "expected_subckt").strip()
+        expected_pins_raw = _form_str(form, "expected_pins").strip()
+        starter_netlist = _form_str(form, "starter_netlist").strip()
+        judge_backend = _form_str(form, "judge_backend", "characterization")
+        submission_kind = _form_str(form, "submission_kind", "netlist")
+        score_unit = _form_str(form, "score_unit", "points")
         lower_is_better = form.get("lower_is_better") == "on"
         is_active = form.get("is_active") == "on"
         is_ranked = form.get("is_ranked") == "on"
-        verification_version = int(form.get("verification_version") or 1)
-        prerequisites_raw = (form.get("prerequisites") or "").strip()
+        verification_version = int(_form_str(form, "verification_version") or 1)
+        prerequisites_raw = _form_str(form, "prerequisites").strip()
 
         judge_zip = form.get("judge_zip")
 
         def _err(msg):
             form_html = _render_create_challenge_form(error=msg, data=form)
-            return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+            return HTMLResponse(
+                _page(
+                    "New Challenge",
+                    "plus-circle",
+                    "Create a new challenge interactively",
+                    form_html,
+                )
+            )
 
         if not slug or not title or not summary or not description or not expected_subckt:
-            return _err("Please fill in all required fields (slug, title, summary, description, subcircuit name).")
+            return _err(
+                "Please fill in all required fields (slug, title, summary, description, subcircuit name)."
+            )
 
         import re
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
-            return _err("Slug must be lowercase, alphanumeric, separated by hyphens (e.g. basic-current-mirror).")
 
-        if not judge_zip or not hasattr(judge_zip, "read"):
-            return _err("You must upload a ZIP file containing the judge/ folder (definition.yaml + test circuits).")
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+            return _err(
+                "Slug must be lowercase, alphanumeric, separated by hyphens (e.g. basic-current-mirror)."
+            )
+
+        if not isinstance(judge_zip, UploadFile):
+            return _err(
+                "You must upload a ZIP file containing the judge/ folder (definition.yaml + test circuits)."
+            )
 
         pin_list = [p.strip() for p in expected_pins_raw.split(",") if p.strip()]
         if not pin_list:
             return _err("At least one pin is required.")
 
-        prereqs = [s.strip() for s in prerequisites_raw.split(",") if s.strip()] if prerequisites_raw else []
+        prereqs = (
+            [s.strip() for s in prerequisites_raw.split(",") if s.strip()]
+            if prerequisites_raw
+            else []
+        )
 
         with SessionLocal() as session:
             existing = session.scalar(select(Challenge).where(Challenge.slug == slug))
@@ -239,12 +289,15 @@ class CreateChallengeView(BaseView):
                 return _err(f"A challenge with slug '{slug}' already exists.")
 
         from .config import get_settings as _get_settings
+
         settings = _get_settings()
         challenges_root = _Path(settings.challenges_path)
         package_dir = challenges_root / slug
 
         if package_dir.exists():
-            return _err(f"Directory '{slug}' already exists under challenges/. Pick a different slug.")
+            return _err(
+                f"Directory '{slug}' already exists under challenges/. Pick a different slug."
+            )
 
         try:
             package_dir.mkdir(parents=True, exist_ok=False)
@@ -260,10 +313,14 @@ class CreateChallengeView(BaseView):
                 with zipfile.ZipFile(tmp_path, "r") as zf:
                     entries = zf.infolist()
                     if len(entries) > MAX_ZIP_ENTRIES:
-                        raise ValueError(f"ZIP contains too many entries ({len(entries)} > {MAX_ZIP_ENTRIES})")
+                        raise ValueError(
+                            f"ZIP contains too many entries ({len(entries)} > {MAX_ZIP_ENTRIES})"
+                        )
                     total_size = sum(e.file_size for e in entries)
                     if total_size > MAX_ZIP_DECOMPRESSED:
-                        raise ValueError(f"ZIP decompressed size exceeds {MAX_ZIP_DECOMPRESSED // (1024*1024)} MiB")
+                        raise ValueError(
+                            f"ZIP decompressed size exceeds {MAX_ZIP_DECOMPRESSED // (1024 * 1024)} MiB"
+                        )
                     for entry in entries:
                         # Reject symlinks
                         if entry.external_attr >> 28 == 0xA:
@@ -273,10 +330,13 @@ class CreateChallengeView(BaseView):
                         try:
                             target.relative_to(package_dir.resolve())
                         except ValueError:
-                            raise ValueError(f"ZIP contains path traversal: {entry.filename}")
+                            raise ValueError(
+                                f"ZIP contains path traversal: {entry.filename}"
+                            ) from None
                     zf.extractall(package_dir)
             finally:
                 import os
+
                 os.unlink(tmp_path)
 
             judge_def_path = "judge/definition.yaml"
@@ -311,7 +371,7 @@ class CreateChallengeView(BaseView):
             design_files_assets = []
             design_files_raw = form.getlist("design_files")
             for df in design_files_raw:
-                if not hasattr(df, "read") or not df.filename:
+                if not isinstance(df, UploadFile) or not df.filename:
                     continue
                 fname = _Path(df.filename).name
                 if not fname:
@@ -332,12 +392,14 @@ class CreateChallengeView(BaseView):
                 }
                 label = f"{ext_labels.get(ext, 'Design file')} ({ext})"
                 asset_id = fname.replace(".", "_").replace(" ", "_").lower()
-                design_files_assets.append({
-                    "id": asset_id,
-                    "label": label,
-                    "path": fname,
-                    "download_name": fname,
-                })
+                design_files_assets.append(
+                    {
+                        "id": asset_id,
+                        "label": label,
+                        "path": fname,
+                        "download_name": fname,
+                    }
+                )
 
             judge_config = {"definition": judge_def_path}
             manifest = {
@@ -377,10 +439,11 @@ class CreateChallengeView(BaseView):
             )
 
             from .challenge_catalog import _read_package
+
             try:
                 validated_slug, values = _read_package(package_dir)
             except ValueError as ve:
-                raise ValueError(f"Validation failed: {ve}")
+                raise ValueError(f"Validation failed: {ve}") from ve
 
             with SessionLocal() as session:
                 challenge = Challenge(slug=validated_slug, **values)
@@ -397,16 +460,18 @@ class CreateChallengeView(BaseView):
     @expose("/create-challenge-confirm", methods=["POST"])
     async def confirm_create_challenge(self, request: Request) -> Response:
         form = await request.form()
-        slug = (form.get("slug") or "").strip()
+        slug = _form_str(form, "slug").strip()
         if not slug:
             return RedirectResponse("/admin/challenge/list", status_code=302)
-            
+
         with SessionLocal() as session:
             challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
             if challenge:
-                from .config import get_settings as _get_settings
-                from pathlib import Path as _Path
                 import json as _json
+                from pathlib import Path as _Path
+
+                from .config import get_settings as _get_settings
+
                 challenges_root = _Path(_get_settings().challenges_path)
                 manifest_path = challenges_root / slug / "challenge.json"
                 if manifest_path.exists():
@@ -415,17 +480,19 @@ class CreateChallengeView(BaseView):
                     if "intended_is_active" in manifest:
                         del manifest["intended_is_active"]
                     manifest["is_active"] = challenge.is_active
-                    manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+                    manifest_path.write_text(
+                        _json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+                    )
                 session.commit()
         return RedirectResponse("/admin/challenge/list", status_code=302)
 
     @expose("/create-challenge-cancel", methods=["POST"])
     async def cancel_create_challenge(self, request: Request) -> Response:
         form = await request.form()
-        slug = (form.get("slug") or "").strip()
+        slug = _form_str(form, "slug").strip()
         if not slug:
             return RedirectResponse("/admin/create-challenge", status_code=302)
-            
+
         data = {}
         with SessionLocal() as session:
             challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
@@ -448,44 +515,55 @@ class CreateChallengeView(BaseView):
                     "submission_kind": challenge.submission_kind,
                     "prerequisites": ", ".join(challenge.prerequisites or []),
                 }
-                from .config import get_settings as _get_settings
-                from pathlib import Path as _Path
                 import json as _json
                 import shutil
-                
+                from pathlib import Path as _Path
+
+                from .config import get_settings as _get_settings
+
                 challenges_root = _Path(_get_settings().challenges_path)
                 package_dir = challenges_root / slug
-                
+
                 if package_dir.exists():
                     try:
-                        manifest = _json.loads((package_dir / "challenge.json").read_text(encoding="utf-8"))
-                        data["is_active"] = "on" if manifest.get("intended_is_active", False) else ""
-                    except:
+                        manifest = _json.loads(
+                            (package_dir / "challenge.json").read_text(encoding="utf-8")
+                        )
+                        data["is_active"] = (
+                            "on" if manifest.get("intended_is_active", False) else ""
+                        )
+                    except Exception:
                         pass
                     try:
-                        data["description"] = (package_dir / "specification.md").read_text(encoding="utf-8")
-                    except:
+                        data["description"] = (package_dir / "specification.md").read_text(
+                            encoding="utf-8"
+                        )
+                    except Exception:
                         pass
                     try:
-                        data["starter_netlist"] = (package_dir / "starter.cir").read_text(encoding="utf-8")
-                    except:
+                        data["starter_netlist"] = (package_dir / "starter.cir").read_text(
+                            encoding="utf-8"
+                        )
+                    except Exception:
                         pass
-                        
+
                 session.delete(challenge)
                 session.commit()
                 if package_dir.exists():
                     shutil.rmtree(package_dir, ignore_errors=True)
-                    
+
         form_html = _render_create_challenge_form(
-            error="Draft discarded. You can continue editing. Note: You must select the ZIP file again.", 
-            data=data
+            error="Draft discarded. You can continue editing. Note: You must select the ZIP file again.",
+            data=data,
         )
-        return HTMLResponse(_page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html))
+        return HTMLResponse(
+            _page("New Challenge", "plus-circle", "Create a new challenge interactively", form_html)
+        )
 
 
-
-
-def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
+def _render_create_challenge_form(
+    error: str | None = None, data: Mapping[str, Any] | None = None
+) -> str:
     data = data or {}
     err_html = f'<div class="alert alert-danger">{escape(error)}</div>' if error else ""
 
@@ -513,21 +591,21 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label fw-bold">Slug <span class="text-danger">*</span></label>
-            <input type="text" name="slug" class="form-control" required placeholder="e.g. basic-current-mirror" value="{val('slug')}">
+            <input type="text" name="slug" class="form-control" required placeholder="e.g. basic-current-mirror" value="{val("slug")}">
             <div class="form-text">Lowercase, hyphens only. Also used as the folder name under <code>challenges/</code>.</div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Title <span class="text-danger">*</span></label>
-            <input type="text" name="title" class="form-control" required value="{val('title')}">
+            <input type="text" name="title" class="form-control" required value="{val("title")}">
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Summary <span class="text-danger">*</span></label>
-            <input type="text" name="summary" class="form-control" required value="{val('summary')}">
+            <input type="text" name="summary" class="form-control" required value="{val("summary")}">
             <div class="form-text">One-liner shown on challenge cards.</div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Description (Markdown) <span class="text-danger">*</span></label>
-            <textarea name="description" class="form-control" rows="5" required>{val('description')}</textarea>
+            <textarea name="description" class="form-control" rows="5" required>{val("description")}</textarea>
             <div class="form-text">Full specification the student sees. Saved as <code>specification.md</code>.</div>
           </div>
         </div>
@@ -542,38 +620,38 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
           <div class="mb-3">
             <label class="form-label fw-bold">Track</label>
             <select name="track" class="form-select">
-              <option value="MOS Foundations" {sel('track', 'MOS Foundations', True)}>MOS Foundations</option>
-              <option value="Biasing" {sel('track', 'Biasing')}>Biasing</option>
-              <option value="Gain Stages" {sel('track', 'Gain Stages')}>Gain Stages</option>
-              <option value="Differential" {sel('track', 'Differential')}>Differential</option>
-              <option value="Amplifiers" {sel('track', 'Amplifiers')}>Amplifiers</option>
-              <option value="Physical Design" {sel('track', 'Physical Design')}>Physical Design</option>
-              <option value="Advanced" {sel('track', 'Advanced')}>Advanced</option>
-              <option value="General" {sel('track', 'General')}>General</option>
+              <option value="MOS Foundations" {sel("track", "MOS Foundations", True)}>MOS Foundations</option>
+              <option value="Biasing" {sel("track", "Biasing")}>Biasing</option>
+              <option value="Gain Stages" {sel("track", "Gain Stages")}>Gain Stages</option>
+              <option value="Differential" {sel("track", "Differential")}>Differential</option>
+              <option value="Amplifiers" {sel("track", "Amplifiers")}>Amplifiers</option>
+              <option value="Physical Design" {sel("track", "Physical Design")}>Physical Design</option>
+              <option value="Advanced" {sel("track", "Advanced")}>Advanced</option>
+              <option value="General" {sel("track", "General")}>General</option>
             </select>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Difficulty</label>
             <select name="difficulty" class="form-select">
-              <option value="introductory" {sel('difficulty', 'introductory', True)}>Introductory (x1 pts)</option>
-              <option value="intermediate" {sel('difficulty', 'intermediate')}>Intermediate (x2 pts)</option>
-              <option value="advanced" {sel('difficulty', 'advanced')}>Advanced (x3 pts)</option>
-              <option value="capstone" {sel('difficulty', 'capstone')}>Capstone (x4 pts)</option>
+              <option value="introductory" {sel("difficulty", "introductory", True)}>Introductory (x1 pts)</option>
+              <option value="intermediate" {sel("difficulty", "intermediate")}>Intermediate (x2 pts)</option>
+              <option value="advanced" {sel("difficulty", "advanced")}>Advanced (x3 pts)</option>
+              <option value="capstone" {sel("difficulty", "capstone")}>Capstone (x4 pts)</option>
             </select>
           </div>
           <div class="row">
             <div class="col-6 mb-3">
               <label class="form-label fw-bold">Curriculum Order</label>
-              <input type="number" name="curriculum_order" class="form-control" value="{val('curriculum_order', '0')}">
+              <input type="number" name="curriculum_order" class="form-control" value="{val("curriculum_order", "0")}">
             </div>
             <div class="col-6 mb-3">
               <label class="form-label fw-bold">Category</label>
-              <input type="text" name="category" class="form-control" value="{val('category', 'General')}">
+              <input type="text" name="category" class="form-control" value="{val("category", "General")}">
             </div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Prerequisites</label>
-            <input type="text" name="prerequisites" class="form-control" placeholder="e.g. basic-current-mirror, common-source" value="{val('prerequisites')}">
+            <input type="text" name="prerequisites" class="form-control" placeholder="e.g. basic-current-mirror, common-source" value="{val("prerequisites")}">
             <div class="form-text">Comma-separated slugs of challenges that must be solved first.</div>
           </div>
         </div>
@@ -587,17 +665,17 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label fw-bold">Expected Subcircuit Name <span class="text-danger">*</span></label>
-            <input type="text" name="expected_subckt" class="form-control" required placeholder="e.g. basic_current_mirror" value="{val('expected_subckt')}">
+            <input type="text" name="expected_subckt" class="form-control" required placeholder="e.g. basic_current_mirror" value="{val("expected_subckt")}">
             <div class="form-text">Exact <code>.subckt</code> name the student must define.</div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Expected Pins <span class="text-danger">*</span></label>
-            <input type="text" name="expected_pins" class="form-control" required placeholder="iref, out, vdd, vss" value="{val('expected_pins')}">
+            <input type="text" name="expected_pins" class="form-control" required placeholder="iref, out, vdd, vss" value="{val("expected_pins")}">
             <div class="form-text">Comma-separated pin list, in the exact order expected by the testbench.</div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Starter Netlist</label>
-            <textarea name="starter_netlist" class="form-control" rows="4" style="font-family:monospace;font-size:12px">{val('starter_netlist')}</textarea>
+            <textarea name="starter_netlist" class="form-control" rows="4" style="font-family:monospace;font-size:12px">{val("starter_netlist")}</textarea>
             <div class="form-text">Initial code the student sees in the editor. Optional.</div>
           </div>
         </div>
@@ -630,15 +708,15 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
             <div class="col-6 mb-3">
               <label class="form-label fw-bold">Judge Backend</label>
               <select name="judge_backend" class="form-select">
-                <option value="characterization" {sel('judge_backend', 'characterization', True)}>Characterization</option>
-                <option value="klayout" {sel('judge_backend', 'klayout')}>Klayout (GDS)</option>
+                <option value="characterization" {sel("judge_backend", "characterization", True)}>Characterization</option>
+                <option value="klayout" {sel("judge_backend", "klayout")}>Klayout (GDS)</option>
               </select>
             </div>
             <div class="col-6 mb-3">
               <label class="form-label fw-bold">Submission Kind</label>
               <select name="submission_kind" class="form-select">
-                <option value="netlist" {sel('submission_kind', 'netlist', True)}>Netlist</option>
-                <option value="gds" {sel('submission_kind', 'gds')}>GDS</option>
+                <option value="netlist" {sel("submission_kind", "netlist", True)}>Netlist</option>
+                <option value="gds" {sel("submission_kind", "gds")}>GDS</option>
               </select>
             </div>
           </div>
@@ -655,28 +733,28 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
             <div class="col-md-3 mb-3">
               <label class="form-label fw-bold">Score Unit</label>
               <select name="score_unit" class="form-select">
-                <option value="points" {sel('score_unit', 'points', True)}>points</option>
-                <option value="ps" {sel('score_unit', 'ps')}>ps</option>
-                <option value="uA" {sel('score_unit', 'uA')}>uA</option>
-                <option value="V/V" {sel('score_unit', 'V/V')}>V/V</option>
-                <option value="Hz" {sel('score_unit', 'Hz')}>Hz</option>
+                <option value="points" {sel("score_unit", "points", True)}>points</option>
+                <option value="ps" {sel("score_unit", "ps")}>ps</option>
+                <option value="uA" {sel("score_unit", "uA")}>uA</option>
+                <option value="V/V" {sel("score_unit", "V/V")}>V/V</option>
+                <option value="Hz" {sel("score_unit", "Hz")}>Hz</option>
               </select>
             </div>
             <div class="col-md-3 mb-3">
               <label class="form-label fw-bold">Verification Ver.</label>
-              <input type="number" name="verification_version" class="form-control" value="{val('verification_version', '1')}">
+              <input type="number" name="verification_version" class="form-control" value="{val("verification_version", "1")}">
             </div>
             <div class="col-md-6 d-flex align-items-end gap-4 mb-3">
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check('lower_is_better')}>
+                <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check("lower_is_better")}>
                 <label class="form-check-label" for="checkLower">Lower score is better</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check('is_active', True)}>
+                <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check("is_active", True)}>
                 <label class="form-check-label" for="checkActive">Active</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check('is_ranked', True)}>
+                <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check("is_ranked", True)}>
                 <label class="form-check-label" for="checkRanked">Ranked</label>
               </div>
             </div>
@@ -715,33 +793,44 @@ def _render_create_challenge_form(error: str = None, data: dict = None) -> str:
 # Admin Stats API (for the index page)
 # ---------------------------------------------------------------------------
 
+
 class AdminStatsAPI(BaseView):
     name = "Stats API"
     icon = "fa-solid fa-code"
-    
+
     def is_visible(self, request: Request) -> bool:
         return False
 
     @expose("/admin-stats-api", methods=["GET"])
     async def stats_api(self, request: Request) -> Response:
         import json as _json
+
         with SessionLocal() as session:
             total_users = session.scalar(select(func.count(User.id))) or 0
-            total_challenges = session.scalar(
-                select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
-            ) or 0
+            total_challenges = (
+                session.scalar(
+                    select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
+                )
+                or 0
+            )
             total_submissions = session.scalar(select(func.count(Submission.id))) or 0
-            today_submissions = session.scalar(
-                select(func.count(Submission.id))
-                .where(Submission.created_at >= func.current_date())
-            ) or 0
+            today_submissions = (
+                session.scalar(
+                    select(func.count(Submission.id)).where(
+                        Submission.created_at >= func.current_date()
+                    )
+                )
+                or 0
+            )
         return Response(
-            _json.dumps({
-                "users": total_users,
-                "challenges": total_challenges,
-                "submissions": total_submissions,
-                "today": today_submissions,
-            }),
+            _json.dumps(
+                {
+                    "users": total_users,
+                    "challenges": total_challenges,
+                    "submissions": total_submissions,
+                    "today": today_submissions,
+                }
+            ),
             media_type="application/json",
         )
 
@@ -749,6 +838,7 @@ class AdminStatsAPI(BaseView):
 # ---------------------------------------------------------------------------
 # Challenge Statistics view
 # ---------------------------------------------------------------------------
+
 
 class ChallengeStatsView(BaseView):
     name = "Challenge Stats"
@@ -765,45 +855,60 @@ class ChallengeStatsView(BaseView):
 
             stats: list[dict] = []
             for challenge in challenges:
-                total = session.scalar(
-                    select(func.count(Submission.id))
-                    .where(Submission.challenge_id == challenge.id)
-                ) or 0
-                accepted = session.scalar(
-                    select(func.count(Submission.id))
-                    .where(
-                        Submission.challenge_id == challenge.id,
-                        Submission.status == "accepted",
+                total = (
+                    session.scalar(
+                        select(func.count(Submission.id)).where(
+                            Submission.challenge_id == challenge.id
+                        )
                     )
-                ) or 0
-                failed = session.scalar(
-                    select(func.count(Submission.id))
-                    .where(
-                        Submission.challenge_id == challenge.id,
-                        Submission.status.in_(["failed", "rejected"]),
+                    or 0
+                )
+                accepted = (
+                    session.scalar(
+                        select(func.count(Submission.id)).where(
+                            Submission.challenge_id == challenge.id,
+                            Submission.status == "accepted",
+                        )
                     )
-                ) or 0
-                queued = session.scalar(
-                    select(func.count(Submission.id))
-                    .where(
-                        Submission.challenge_id == challenge.id,
-                        Submission.status.in_(["queued", "running"]),
+                    or 0
+                )
+                failed = (
+                    session.scalar(
+                        select(func.count(Submission.id)).where(
+                            Submission.challenge_id == challenge.id,
+                            Submission.status.in_(["failed", "rejected"]),
+                        )
                     )
-                ) or 0
-                unique_users = session.scalar(
-                    select(func.count(func.distinct(Submission.user_id)))
-                    .where(Submission.challenge_id == challenge.id)
-                ) or 0
-                users_accepted = session.scalar(
-                    select(func.count(func.distinct(Submission.user_id)))
-                    .where(
-                        Submission.challenge_id == challenge.id,
-                        Submission.status == "accepted",
+                    or 0
+                )
+                queued = (
+                    session.scalar(
+                        select(func.count(Submission.id)).where(
+                            Submission.challenge_id == challenge.id,
+                            Submission.status.in_(["queued", "running"]),
+                        )
                     )
-                ) or 0
+                    or 0
+                )
+                unique_users = (
+                    session.scalar(
+                        select(func.count(func.distinct(Submission.user_id))).where(
+                            Submission.challenge_id == challenge.id
+                        )
+                    )
+                    or 0
+                )
+                users_accepted = (
+                    session.scalar(
+                        select(func.count(func.distinct(Submission.user_id))).where(
+                            Submission.challenge_id == challenge.id,
+                            Submission.status == "accepted",
+                        )
+                    )
+                    or 0
+                )
                 avg_score = session.scalar(
-                    select(func.avg(Submission.score))
-                    .where(
+                    select(func.avg(Submission.score)).where(
                         Submission.challenge_id == challenge.id,
                         Submission.status == "accepted",
                         Submission.score.is_not(None),
@@ -814,40 +919,48 @@ class ChallengeStatsView(BaseView):
                         func.min(Submission.score)
                         if challenge.lower_is_better
                         else func.max(Submission.score)
-                    )
-                    .where(
+                    ).where(
                         Submission.challenge_id == challenge.id,
                         Submission.status == "accepted",
                         Submission.score.is_not(None),
                     )
                 )
                 acceptance_rate = (accepted / total * 100) if total > 0 else 0
-                stats.append({
-                    "challenge": challenge,
-                    "total_submissions": total,
-                    "accepted": accepted,
-                    "failed": failed,
-                    "queued": queued,
-                    "unique_users": unique_users,
-                    "users_accepted": users_accepted,
-                    "acceptance_rate": round(acceptance_rate, 1),
-                    "avg_score": round(avg_score, 4) if avg_score is not None else None,
-                    "best_score": round(best_score, 4) if best_score is not None else None,
-                })
+                stats.append(
+                    {
+                        "challenge": challenge,
+                        "total_submissions": total,
+                        "accepted": accepted,
+                        "failed": failed,
+                        "queued": queued,
+                        "unique_users": unique_users,
+                        "users_accepted": users_accepted,
+                        "acceptance_rate": round(acceptance_rate, 1),
+                        "avg_score": round(avg_score, 4) if avg_score is not None else None,
+                        "best_score": round(best_score, 4) if best_score is not None else None,
+                    }
+                )
 
             total_challenges = len(challenges)
             total_submissions = sum(s["total_submissions"] for s in stats)
             total_users = session.scalar(select(func.count(User.id))) or 0
             total_accepted = sum(s["accepted"] for s in stats)
 
-        return HTMLResponse(_render_stats_page(
-            stats, total_challenges, total_submissions, total_users, total_accepted,
-        ))
+        return HTMLResponse(
+            _render_stats_page(
+                stats,
+                total_challenges,
+                total_submissions,
+                total_users,
+                total_accepted,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
 # Global Leaderboard view
 # ---------------------------------------------------------------------------
+
 
 class GlobalLeaderboardView(BaseView):
     name = "Global Ranking"
@@ -862,23 +975,32 @@ class GlobalLeaderboardView(BaseView):
                 .where(Challenge.is_active.is_(True), Challenge.is_ranked.is_(True))
                 .order_by(Challenge.curriculum_order, Challenge.id)
             ).all()
-            max_points = sum(
-                DIFFICULTY_WEIGHTS.get(c.difficulty, 1) * 100 for c in challenges
-            )
+            max_points = sum(DIFFICULTY_WEIGHTS.get(c.difficulty, 1) * 100 for c in challenges)
             total_users = session.scalar(select(func.count(User.id))) or 0
-            users_with_submissions = session.scalar(
-                select(func.count(func.distinct(Submission.user_id)))
-                .where(Submission.status == "accepted")
-            ) or 0
+            users_with_submissions = (
+                session.scalar(
+                    select(func.count(func.distinct(Submission.user_id))).where(
+                        Submission.status == "accepted"
+                    )
+                )
+                or 0
+            )
 
-        return HTMLResponse(_render_leaderboard_page(
-            leaders, challenges, max_points, total_users, users_with_submissions,
-        ))
+        return HTMLResponse(
+            _render_leaderboard_page(
+                leaders,
+                challenges,
+                max_points,
+                total_users,
+                users_with_submissions,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
 # Recent Activity view
 # ---------------------------------------------------------------------------
+
 
 class RecentActivityView(BaseView):
     name = "Recent Activity"
@@ -900,26 +1022,38 @@ class RecentActivityView(BaseView):
                 select(User).order_by(User.created_at.desc()).limit(10)
             ).all()
 
-            total_today = session.scalar(
-                select(func.count(Submission.id))
-                .where(Submission.created_at >= func.current_date())
-            ) or 0
-            accepted_today = session.scalar(
-                select(func.count(Submission.id))
-                .where(
-                    Submission.created_at >= func.current_date(),
-                    Submission.status == "accepted",
+            total_today = (
+                session.scalar(
+                    select(func.count(Submission.id)).where(
+                        Submission.created_at >= func.current_date()
+                    )
                 )
-            ) or 0
+                or 0
+            )
+            accepted_today = (
+                session.scalar(
+                    select(func.count(Submission.id)).where(
+                        Submission.created_at >= func.current_date(),
+                        Submission.status == "accepted",
+                    )
+                )
+                or 0
+            )
 
-        return HTMLResponse(_render_activity_page(
-            recent, recent_users, total_today, accepted_today,
-        ))
+        return HTMLResponse(
+            _render_activity_page(
+                recent,
+                recent_users,
+                total_today,
+                accepted_today,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
 # HTML renderers
 # ---------------------------------------------------------------------------
+
 
 def _render_stats_page(
     stats: list[dict],
@@ -931,16 +1065,18 @@ def _render_stats_page(
     rows = ""
     for s in stats:
         c = s["challenge"]
-        avg = f'{s["avg_score"]:.4g}' if s["avg_score"] is not None else "\u2014"
-        best = f'{s["best_score"]:.4g}' if s["best_score"] is not None else "\u2014"
+        avg = f"{s['avg_score']:.4g}" if s["avg_score"] is not None else "\u2014"
+        best = f"{s['best_score']:.4g}" if s["best_score"] is not None else "\u2014"
         active_badge = (
             '<span style="color:#2e7d32;font-weight:600">\u25cf Active</span>'
             if c.is_active
             else '<span style="color:#c62828;font-weight:600">\u25cf Inactive</span>'
         )
         diff_colors = {
-            "introductory": "#2e7d32", "intermediate": "#ef6c00",
-            "advanced": "#c62828", "capstone": "#6a1b9a",
+            "introductory": "#2e7d32",
+            "intermediate": "#ef6c00",
+            "advanced": "#c62828",
+            "capstone": "#6a1b9a",
         }
         diff_color = diff_colors.get(c.difficulty, "#555")
         rows += f"""<tr>
@@ -956,10 +1092,12 @@ def _render_stats_page(
           <td style="text-align:right">{s["unique_users"]}</td>
           <td style="text-align:right">{s["users_accepted"]}</td>
           <td style="text-align:right">{avg} {escape(c.score_unit)}</td>
-          <td style="text-align:right"><strong>{best}</strong> {escape(c.score_unit) if best != chr(0x2014) else ''}</td>
+          <td style="text-align:right"><strong>{best}</strong> {escape(c.score_unit) if best != chr(0x2014) else ""}</td>
         </tr>"""
 
-    overall_rate = round(total_accepted / total_submissions * 100, 1) if total_submissions > 0 else 0
+    overall_rate = (
+        round(total_accepted / total_submissions * 100, 1) if total_submissions > 0 else 0
+    )
 
     cards = f"""<div class="row g-3 mb-4">
     <div class="col-md-3"><div class="stat-card"><div class="number">{total_challenges}</div><div class="label">Active Challenges</div></div></div>
@@ -991,14 +1129,17 @@ def _render_stats_page(
     To add a new challenge, use <a href="/admin/challenge/create" style="color:#d56a3a">Create Challenge</a>.
   </small></div>"""
 
-    return _page("Challenge Statistics", "chart-bar",
-                  "Per-challenge performance metrics across all users",
-                  cards + table)
+    return _page(
+        "Challenge Statistics",
+        "chart-bar",
+        "Per-challenge performance metrics across all users",
+        cards + table,
+    )
 
 
 def _render_leaderboard_page(
     leaders: list,
-    challenges: list,
+    challenges: Sequence[Challenge],
     max_points: float,
     total_users: int,
     users_with_submissions: int,
@@ -1013,8 +1154,12 @@ def _render_leaderboard_page(
     # Challenge column headers
     ch_headers = ""
     for c in challenges:
-        diff_cls = {"introductory": "intro", "intermediate": "inter",
-                    "advanced": "adv", "capstone": "cap"}.get(c.difficulty, "")
+        diff_cls = {
+            "introductory": "intro",
+            "intermediate": "inter",
+            "advanced": "adv",
+            "capstone": "cap",
+        }.get(c.difficulty, "")
         ch_headers += f'<th style="text-align:center;font-size:9px;max-width:80px;white-space:normal;line-height:1.2" title="{escape(c.title)}">{escape(c.title[:18])}</th>'
 
     rows = ""
@@ -1040,8 +1185,12 @@ def _render_leaderboard_page(
         for c in challenges:
             d = detail_map.get(c.id)
             if d:
-                diff_cls = {"introductory": "intro", "intermediate": "inter",
-                            "advanced": "adv", "capstone": "cap"}.get(c.difficulty, "")
+                diff_cls = {
+                    "introductory": "intro",
+                    "intermediate": "inter",
+                    "advanced": "adv",
+                    "capstone": "cap",
+                }.get(c.difficulty, "")
                 ch_cells += f'<td style="text-align:center"><span class="detail-badge {diff_cls}" title="{d.score:.4g} {escape(c.score_unit)} \u2014 {d.points:.0f} pts">{d.points:.0f}</span></td>'
             else:
                 ch_cells += '<td style="text-align:center;color:#ddd">\u2014</td>'
@@ -1088,14 +1237,17 @@ def _render_leaderboard_page(
     The highest-ranking students automatically earn scholarships.
   </small></div>"""
 
-    return _page("Global Ranking", "trophy",
-                  "Complete difficulty-weighted leaderboard across all challenges",
-                  cards + table)
+    return _page(
+        "Global Ranking",
+        "trophy",
+        "Complete difficulty-weighted leaderboard across all challenges",
+        cards + table,
+    )
 
 
 def _render_activity_page(
-    recent: list,
-    recent_users: list,
+    recent: Sequence[Any],
+    recent_users: Sequence[User],
     total_today: int,
     accepted_today: int,
 ) -> str:
@@ -1110,10 +1262,17 @@ def _render_activity_page(
     sub_rows = ""
     for submission, user, challenge in recent:
         status_color = {
-            "accepted": "#2e7d32", "failed": "#c62828", "rejected": "#c62828",
-            "queued": "#e2a723", "running": "#e2a723",
+            "accepted": "#2e7d32",
+            "failed": "#c62828",
+            "rejected": "#c62828",
+            "queued": "#e2a723",
+            "running": "#e2a723",
         }.get(submission.status, "#888")
-        score_str = f"{submission.score:.4g} {challenge.score_unit}" if submission.score is not None else "\u2014"
+        score_str = (
+            f"{submission.score:.4g} {challenge.score_unit}"
+            if submission.score is not None
+            else "\u2014"
+        )
         ts = submission.created_at.strftime("%Y-%m-%d %H:%M") if submission.created_at else "\u2014"
         sub_rows += f"""<tr>
           <td style="text-align:center;font-size:12px;color:#888">#{submission.id}</td>
@@ -1142,7 +1301,11 @@ def _render_activity_page(
     user_rows = ""
     for u in recent_users:
         ts = u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else "\u2014"
-        admin_badge = ' <span style="background:#dbff3d;color:#111815;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">ADMIN</span>' if u.is_admin else ""
+        admin_badge = (
+            ' <span style="background:#dbff3d;color:#111815;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">ADMIN</span>'
+            if u.is_admin
+            else ""
+        )
         user_rows += f"""<tr>
           <td style="text-align:center;color:#888">#{u.id}</td>
           <td><strong>{escape(u.display_name)}</strong>{admin_badge}</td>
@@ -1158,17 +1321,22 @@ def _render_activity_page(
     </table></div>
   </div>"""
 
-    return _page("Recent Activity", "clock-rotate-left",
-                  "Latest submissions and user registrations",
-                  cards + submissions_table + users_table)
+    return _page(
+        "Recent Activity",
+        "clock-rotate-left",
+        "Latest submissions and user registrations",
+        cards + submissions_table + users_table,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
 
+
 def setup_admin(app, engine, settings: Settings) -> Admin:
     import pathlib as _pathlib
+
     auth_backend = AdminAuth(settings)
     _tpl_dir = str(_pathlib.Path(__file__).resolve().parent / "templates" / "admin")
     admin = Admin(
@@ -1187,4 +1355,3 @@ def setup_admin(app, engine, settings: Settings) -> Admin:
     admin.add_view(ChallengeAdmin)
     admin.add_view(SubmissionAdmin)
     return admin
-

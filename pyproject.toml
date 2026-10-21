@@ -31,7 +31,9 @@ dev = [
   "httpx>=0.27,<1",
   "pytest>=8.3,<9",
   "pytest-cov>=6,<7",
-  "ruff>=0.8,<1",
+  "mypy==2.4.0",
+  "ruff==0.17.1",
+  "types-PyYAML>=6,<7",
 ]
 
 [project.scripts]
@@ -50,3 +52,17 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# admin.py embeds large HTML/CSS templates in f-strings; wrapping them to
+# 100 columns would hurt readability and risk altering the rendered markup.
+"src/leetspice/admin.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+
+[[tool.mypy.overrides]]
+# klayout is an optional "eda" extra that CI does not install.
+module = ["klayout", "klayout.*"]
+ignore_missing_imports = true

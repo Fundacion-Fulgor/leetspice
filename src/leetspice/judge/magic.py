@@ -19,7 +19,8 @@ class MagicRunner:
         executable: str = "magic",
         timeout: float = 300,
     ) -> None:
-        self.pdk_root = Path(pdk_root or os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK"))
+        default_pdk_root = os.getenv("PDK_ROOT", "/opt/IHP-Open-PDK")
+        self.pdk_root = Path(pdk_root or default_pdk_root)
         self.executable = executable
         self.timeout = timeout
         self.rcfile = self.pdk_root / "ihp-sg13g2" / "libs.tech" / "magic" / "ihp-sg13g2.magicrc"

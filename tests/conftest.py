@@ -4,11 +4,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from leetspice.config import Settings
+from leetspice.limiter import limiter
 from leetspice.main import create_app
 
 
 @pytest.fixture
 def client(tmp_path):
+    # The limiter is a module-level singleton; clear its counters so rate
+    # limits from one test do not leak into the next.
+    limiter.reset()
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         secret_key="test-secret-key",

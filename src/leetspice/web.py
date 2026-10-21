@@ -15,6 +15,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -61,7 +62,9 @@ def _completed_slugs(db: Session, user: User | None) -> set[str]:
 
 
 def _challenge_progress(
-    db: Session, user: User | None, challenges: Sequence[Challenge],
+    db: Session,
+    user: User | None,
+    challenges: Sequence[Challenge],
 ) -> dict[str, str]:
     """Map every challenge slug to a progress token for the logged-in user.
 
@@ -94,15 +97,15 @@ def _challenge_progress(
 
 
 def _missing_prerequisites(
-    db: Session, challenge: Challenge, completed: set[str],
+    db: Session,
+    challenge: Challenge,
+    completed: set[str],
 ) -> list[Challenge]:
     """Return the *Challenge* objects the user still needs to complete."""
     missing_slugs = [slug for slug in (challenge.prerequisites or []) if slug not in completed]
     if not missing_slugs:
         return []
-    return list(
-        db.scalars(select(Challenge).where(Challenge.slug.in_(missing_slugs))).all()
-    )
+    return list(db.scalars(select(Challenge).where(Challenge.slug.in_(missing_slugs))).all())
 
 
 def _context(request: Request, db: Session, **values: object) -> dict[str, object]:
@@ -159,7 +162,8 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
         request,
         "catalog.html",
         _context(
-            request, db,
+            request,
+            db,
             tracks=tracks,
             challenges_count=len(challenges),
             progress=progress,
@@ -199,7 +203,7 @@ def global_board(request: Request, db: Annotated[Session, Depends(get_session)])
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -207,26 +211,35 @@ def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) ->
     leaders = global_leaderboard(db)
     my_ranking = next((leader for leader in leaders if leader.user.id == user.id), None)
 
-    total_challenges = db.scalar(
-        select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))
-    ) or 0
-    completed_challenges = db.scalar(
-        select(func.count(func.distinct(Submission.challenge_id))).where(
-            Submission.user_id == user.id, Submission.status == "accepted"
+    total_challenges = (
+        db.scalar(select(func.count(Challenge.id)).where(Challenge.is_active.is_(True))) or 0
+    )
+    completed_challenges = (
+        db.scalar(
+            select(func.count(func.distinct(Submission.challenge_id))).where(
+                Submission.user_id == user.id, Submission.status == "accepted"
+            )
         )
-    ) or 0
+        or 0
+    )
 
-    resolved_count = db.scalar(
-        select(func.count(Submission.id)).where(
-            Submission.user_id == user.id,
-            Submission.status.in_(("accepted", "failed", "rejected")),
+    resolved_count = (
+        db.scalar(
+            select(func.count(Submission.id)).where(
+                Submission.user_id == user.id,
+                Submission.status.in_(("accepted", "failed", "rejected")),
+            )
         )
-    ) or 0
-    accepted_count = db.scalar(
-        select(func.count(Submission.id)).where(
-            Submission.user_id == user.id, Submission.status == "accepted"
+        or 0
+    )
+    accepted_count = (
+        db.scalar(
+            select(func.count(Submission.id)).where(
+                Submission.user_id == user.id, Submission.status == "accepted"
+            )
         )
-    ) or 0
+        or 0
+    )
     success_rate = (accepted_count / resolved_count * 100) if resolved_count else 0.0
 
     recent = db.scalars(
@@ -238,9 +251,7 @@ def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) ->
     ).all()
 
     submission_dates = db.scalars(
-        select(func.distinct(func.date(Submission.created_at))).where(
-            Submission.user_id == user.id
-        )
+        select(func.distinct(func.date(Submission.created_at))).where(Submission.user_id == user.id)
     ).all()
     today = date.today()
     date_set = {d if isinstance(d, date) else date.fromisoformat(str(d)) for d in submission_dates}
@@ -269,7 +280,7 @@ def dashboard(request: Request, db: Annotated[Session, Depends(get_session)]) ->
 
 
 @router.get("/profile", response_class=HTMLResponse)
-def profile_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+def profile_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -282,7 +293,7 @@ def profile_update(
     db: Annotated[Session, Depends(get_session)],
     display_name: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = _current_user(request, db)
     if user is None:
@@ -292,14 +303,24 @@ def profile_update(
         return templates.TemplateResponse(
             request,
             "profile.html",
-            _context(request, db, name_error="Display name must be between 1 and 80 characters.", show_name=True),
+            _context(
+                request,
+                db,
+                name_error="Display name must be between 1 and 80 characters.",
+                show_name=True,
+            ),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     if name == user.display_name:
         return templates.TemplateResponse(
             request,
             "profile.html",
-            _context(request, db, name_error="New name is the same as the current one.", show_name=True),
+            _context(
+                request,
+                db,
+                name_error="New name is the same as the current one.",
+                show_name=True,
+            ),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     user.display_name = name
@@ -317,7 +338,7 @@ def profile_password(
     new_password: Annotated[str, Form()],
     confirm_password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = _current_user(request, db)
     if user is None:
@@ -355,7 +376,7 @@ def register(
     display_name: Annotated[str, Form()],
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     normalized_email = email.strip().lower()
     name = display_name.strip()
@@ -395,7 +416,7 @@ def login(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = db.scalar(select(User).where(User.email == email.strip().lower()))
     if user is None or not verify_password(user.password_hash, password):
@@ -419,7 +440,7 @@ def logout(request: Request, csrf_token: Annotated[str, Form()]) -> RedirectResp
 @router.get("/challenges/{slug}", response_class=HTMLResponse)
 def challenge_detail(
     slug: str, request: Request, db: Annotated[Session, Depends(get_session)]
-) -> HTMLResponse:
+) -> Response:
     user = _current_user(request, db)
     is_admin = user is not None and user.is_admin
 
@@ -435,9 +456,7 @@ def challenge_detail(
         replacement = next(
             (
                 item
-                for item in db.scalars(
-                    select(Challenge).where(Challenge.is_active.is_(True))
-                ).all()
+                for item in db.scalars(select(Challenge).where(Challenge.is_active.is_(True))).all()
                 if slug in item.retired_slugs
             ),
             None,
@@ -452,7 +471,7 @@ def challenge_detail(
     prereqs = challenge.prerequisites or []
     prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
     missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
-    
+
     is_preview = request.query_params.get("preview") == "1"
 
     return templates.TemplateResponse(
@@ -517,7 +536,7 @@ async def submit(
     csrf_token: Annotated[str, Form()],
     netlist: Annotated[str, Form()] = "",
     layout: Annotated[UploadFile | None, File()] = None,
-) -> HTMLResponse:
+) -> Response:
     require_csrf(request, csrf_token)
     user = _current_user(request, db)
     if user is None:
@@ -655,7 +674,7 @@ def my_submissions(
     db: Annotated[Session, Depends(get_session)],
     page: Annotated[int, Query(ge=1)] = 1,
     status_filter: Annotated[str, Query(alias="status")] = "all",
-) -> HTMLResponse:
+) -> Response:
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)

@@ -9,11 +9,11 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from . import db
+from .admin import setup_admin
 from .auth import new_session, read_session, set_session_cookie
 from .challenge_catalog import seed_challenges
 from .config import Settings, get_settings
 from .schemas import HealthRead
-from .admin import setup_admin
 from .web import router
 
 
@@ -71,19 +71,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.include_router(router)
     setup_admin(application, db.engine, settings)
-    
+
     # Configure SlowAPI rate limiting
-    from slowapi.errors import RateLimitExceeded
-    from slowapi.middleware import SlowAPIMiddleware
+    import pathlib
+
     from fastapi.responses import HTMLResponse
     from fastapi.templating import Jinja2Templates
-    import pathlib
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+
     from .limiter import limiter
 
     _templates = Jinja2Templates(directory=str(pathlib.Path(__file__).parent / "templates"))
     application.state.limiter = limiter
 
-    async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> HTMLResponse:
+    async def _rate_limit_handler(request: Request, exc: Exception) -> HTMLResponse:
         ctx: dict = {"request": request, "current_user": None, "csrf_token": ""}
         session_data = getattr(request.state, "session", {})
         if session_data:
@@ -92,10 +94,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if user_id:
                 with db.SessionLocal() as s:
                     from .models import User
+
                     ctx["current_user"] = s.get(User, user_id)
-        return _templates.TemplateResponse(
-            request, "rate_limit.html", ctx, status_code=429
-        )
+        return _templates.TemplateResponse(request, "rate_limit.html", ctx, status_code=429)
 
     application.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
     application.add_middleware(SlowAPIMiddleware)
