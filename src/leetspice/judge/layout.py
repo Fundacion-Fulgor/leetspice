@@ -90,7 +90,9 @@ class LayoutJudge:
                         future = pool.submit(self._inspect, gds, expected_top)
                         area, cell_count = future.result(timeout=rem_time())
                 except Exception:
-                    return JudgeResult(False, 0.0, message="GDSII parsing failed: malformed layout or crash")
+                    return JudgeResult(
+                        False, 0.0, message="GDSII parsing failed: malformed layout or crash"
+                    )
 
                 magic = MagicRunner(pdk_root=self.pdk_root, timeout=rem_time())
                 violations = magic.drc(gds, expected_top, work)
