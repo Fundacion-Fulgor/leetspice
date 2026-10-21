@@ -81,7 +81,8 @@ class LayoutJudge:
 
                 def rem_time():
                     t = deadline - time.monotonic()
-                    if t <= 0: raise subprocess.TimeoutExpired("layout", self.timeout)
+                    if t <= 0:
+                        raise subprocess.TimeoutExpired("layout", self.timeout)
                     return t
 
                 try:
