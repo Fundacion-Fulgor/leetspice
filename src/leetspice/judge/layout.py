@@ -6,6 +6,8 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import yaml
@@ -74,6 +76,8 @@ class LayoutJudge:
                 work = Path(directory)
                 gds = work / "submission.gds"
                 gds.write_bytes(payload)
+
+                deadline = time.monotonic() + self.timeout
 
                 def rem_time():
                     t = deadline - time.monotonic()
