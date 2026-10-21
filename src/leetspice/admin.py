@@ -274,7 +274,9 @@ class CreateChallengeView(BaseView):
                         try:
                             target.relative_to(package_dir.resolve())
                         except ValueError:
-                            raise ValueError(f"ZIP contains path traversal: {entry.filename}")
+                            raise ValueError(
+                                f"ZIP contains path traversal: {entry.filename}"
+                            ) from None
                     zf.extractall(package_dir)
             finally:
                 import os
@@ -381,7 +383,7 @@ class CreateChallengeView(BaseView):
             try:
                 validated_slug, values = _read_package(package_dir)
             except ValueError as ve:
-                raise ValueError(f"Validation failed: {ve}")
+                raise ValueError(f"Validation failed: {ve}") from ve
 
             with SessionLocal() as session:
                 challenge = Challenge(slug=validated_slug, **values)
