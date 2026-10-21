@@ -15,7 +15,10 @@ depends_on: tuple[str, ...] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("is_admin", sa.Boolean(), server_default="false", nullable=False))
+    op.add_column(
+        "users",
+        sa.Column("is_admin", sa.Boolean(), server_default="false", nullable=False),
+    )
 
 
 def downgrade() -> None:

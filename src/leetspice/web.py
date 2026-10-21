@@ -292,14 +292,24 @@ def profile_update(
         return templates.TemplateResponse(
             request,
             "profile.html",
-            _context(request, db, name_error="Display name must be between 1 and 80 characters.", show_name=True),
+            _context(
+                request,
+                db,
+                name_error="Display name must be between 1 and 80 characters.",
+                show_name=True,
+            ),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     if name == user.display_name:
         return templates.TemplateResponse(
             request,
             "profile.html",
-            _context(request, db, name_error="New name is the same as the current one.", show_name=True),
+            _context(
+                request,
+                db,
+                name_error="New name is the same as the current one.",
+                show_name=True,
+            ),
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     user.display_name = name
