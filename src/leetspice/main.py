@@ -9,11 +9,11 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from . import db
+from .admin import setup_admin
 from .auth import new_session, read_session, set_session_cookie
 from .challenge_catalog import seed_challenges
 from .config import Settings, get_settings
 from .schemas import HealthRead
-from .admin import setup_admin
 from .web import router
 
 
@@ -73,11 +73,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     setup_admin(application, db.engine, settings)
     
     # Configure SlowAPI rate limiting
-    from slowapi.errors import RateLimitExceeded
-    from slowapi.middleware import SlowAPIMiddleware
+    import pathlib
+
     from fastapi.responses import HTMLResponse
     from fastapi.templating import Jinja2Templates
-    import pathlib
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+
     from .limiter import limiter
 
     _templates = Jinja2Templates(directory=str(pathlib.Path(__file__).parent / "templates"))
