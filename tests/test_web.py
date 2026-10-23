@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from leetspice import db
 from leetspice.models import Challenge, Submission, User
+from leetspice.web import _challenge_progress
 
 CHALLENGES = Path(__file__).parents[1] / "challenges"
 
@@ -427,3 +428,30 @@ def test_manifest_seeding_and_grouping(client):
             elif c.slug == "demo-cmos-inverter-layout":
                 assert c.difficulty == "intermediate"
                 assert "DRC" in c.description
+
+
+def test_challenge_progress_separates_judging_from_attempted(client, register, no_prerequisites):
+    """A rejected-only challenge is 'attempted'; only queued/running ones are 'judging'."""
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenges = list(session.scalars(select(Challenge).order_by(Challenge.id)).all())
+        assert len(challenges) >= 4
+        solved, rejected, running, untouched = challenges[:4]
+        for challenge, state in (
+            (solved, "rejected"),
+            (solved, "accepted"),
+            (rejected, "rejected"),
+            (running, "running"),
+        ):
+            session.add(
+                Submission(user_id=user.id, challenge_id=challenge.id, netlist="x", status=state)
+            )
+        session.commit()
+
+        progress = _challenge_progress(session, user, challenges)
+
+    assert progress[solved.slug] == "completed"
+    assert progress[rejected.slug] == "attempted"
+    assert progress[running.slug] == "judging"
+    assert progress[untouched.slug] == "not_started"

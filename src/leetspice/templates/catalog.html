@@ -34,8 +34,10 @@
         {% if current_user %}
         {% if status == 'completed' %}
         <span class="progress-badge completed"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SOLVED</span>
-        {% elif status == 'in_progress' %}
-        <span class="progress-badge in-progress"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>IN PROGRESS</span>
+        {% elif status == 'judging' %}
+        <span class="progress-badge in-progress"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>JUDGING</span>
+        {% elif status == 'attempted' %}
+        <span class="progress-badge attempted"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/></svg>ATTEMPTED</span>
         {% elif status == 'locked' %}
         <span class="progress-badge locked"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>LOCKED</span>
         {% endif %}

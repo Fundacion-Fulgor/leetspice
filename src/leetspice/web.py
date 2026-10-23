@@ -68,20 +68,22 @@ def _challenge_progress(
 ) -> dict[str, str]:
     """Map every challenge slug to a progress token for the logged-in user.
 
-    Possible values: ``'completed'``, ``'in_progress'``, ``'not_started'``,
+    Possible values: ``'completed'``, ``'judging'`` (a submission is still queued or
+    running), ``'attempted'`` (every submission finished but none was accepted),
+    ``'not_started'``,
     ``'locked'`` (prerequisites not met – takes priority).
     """
     if user is None:
         return {}
     completed = _completed_slugs(db, user)
-    attempted = set(
-        db.scalars(
-            select(Challenge.slug)
-            .join(Submission, Submission.challenge_id == Challenge.id)
-            .where(Submission.user_id == user.id)
-            .distinct()
-        ).all()
-    )
+    attempts = db.execute(
+        select(Challenge.slug, Submission.status)
+        .join(Submission, Submission.challenge_id == Challenge.id)
+        .where(Submission.user_id == user.id)
+        .distinct()
+    ).all()
+    attempted = {slug for slug, _ in attempts}
+    judging = {slug for slug, state in attempts if state in ("queued", "running")}
     progress: dict[str, str] = {}
     for challenge in challenges:
         prereqs = challenge.prerequisites or []
@@ -89,8 +91,10 @@ def _challenge_progress(
             progress[challenge.slug] = "locked"
         elif challenge.slug in completed:
             progress[challenge.slug] = "completed"
+        elif challenge.slug in judging:
+            progress[challenge.slug] = "judging"
         elif challenge.slug in attempted:
-            progress[challenge.slug] = "in_progress"
+            progress[challenge.slug] = "attempted"
         else:
             progress[challenge.slug] = "not_started"
     return progress
