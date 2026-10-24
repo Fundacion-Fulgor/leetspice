@@ -455,3 +455,41 @@ def test_challenge_progress_separates_judging_from_attempted(client, register, n
     assert progress[rejected.slug] == "attempted"
     assert progress[running.slug] == "judging"
     assert progress[untouched.slug] == "not_started"
+
+
+def test_submission_page_lists_drc_violations(client, register):
+    register()
+    violations = [
+        {
+            "rule": "M1.a",
+            "description": "Metal1 width < 0.16um (M1.a)",
+            "count": 12,
+            "locations": [[5.58, 0.195, 5.585, 0.355]],
+        }
+    ]
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
+        submission = Submission(
+            user_id=user.id,
+            challenge_id=challenge.id,
+            netlist="x",
+            status="rejected",
+            score=0.0,
+            result_json={
+                "message": "DRC failed with 12 violation(s)",
+                "measurements": [],
+                "details": {"drc_violations": violations},
+            },
+        )
+        session.add(submission)
+        session.commit()
+        submission_id = submission.id
+
+    response = client.get(f"/submissions/{submission_id}/status")
+    assert response.status_code == 200
+    assert "DRC violations" in response.text
+    assert "<code>M1.a</code>" in response.text
+    assert "Metal1 width &lt; 0.16um (M1.a)" in response.text
+    assert "(5.58, 0.195)" in response.text
+    assert "+11 more" in response.text

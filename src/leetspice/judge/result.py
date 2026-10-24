@@ -28,11 +28,16 @@ class JudgeResult:
     score: float
     measurements: tuple[Measurement, ...] = field(default_factory=tuple)
     message: str = ""
+    # Optional structured diagnostics (e.g. per-rule DRC violations) for the UI.
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "accepted": self.accepted,
             "score": self.score,
             "measurements": [measurement.to_dict() for measurement in self.measurements],
             "message": self.message,
         }
+        if self.details:
+            data["details"] = self.details
+        return data

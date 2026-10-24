@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 from .characterization import CharacterizationJudge
-from .magic import MagicRunner
+from .magic import MagicRunner, is_ignored_drc_rule
 from .netgen import NetgenRunner
 from .result import JudgeResult, Measurement
 from .safe_env import safe_env
@@ -24,12 +24,25 @@ from .safe_env import safe_env
 MAX_GDS_BYTES = 8 * 1024 * 1024
 DRC_RULES_PATTERN = re.compile(r"Violated rules are\s*:\s*\{([^}]*)\}")
 DRC_COUNT_PATTERN = re.compile(r"Number of DRC errors for maximum rule set:\s*(\d+)", re.IGNORECASE)
-SUBCKT_PATTERN = re.compile(r"^\.subckt\s+\S+\s+(.+)$", re.IGNORECASE | re.MULTILINE)
+SUBCKT_DECL_PATTERN = re.compile(r"^\.subckt\s+(\S+)\s+(.+)$", re.IGNORECASE | re.MULTILINE)
 MOS_PATTERN = re.compile(
-    r"^M\S+\s+(?:\S+\s+){4}(sg13_lv_[np]mos)\s+(.+)$",
+    r"^[MX]\S+\s+(?:\S+\s+){4}(sg13_[lh]v_[np]mos)\s+(.+)$",
     re.IGNORECASE | re.MULTILINE,
 )
 MOS_PARAMETER_PATTERN = re.compile(r"\b([WL])\s*=\s*([^\s]+)", re.IGNORECASE)
+PROPERTY_HEADER_PATTERN = re.compile(r"^(\S+)\s+vs\.\s+(\S+):\s*$")
+PROPERTY_LINE_PATTERN = re.compile(
+    r"^\s*(\S+)\s+circuit1:\s*(\S+)\s+circuit2:\s*(\S+)\s*(.*)$",
+    re.IGNORECASE,
+)
+COLUMN_SPLIT_PATTERN = re.compile(r"(?:^|\s+)\|")
+MOS_PORT_TRANSLATIONS = (
+    (re.compile(r"(sg13_[lh]v_[np]mos)/\(1\|3\)", re.IGNORECASE), r"\1/(drain|source)"),
+    (re.compile(r"(sg13_[lh]v_[np]mos)/1\b", re.IGNORECASE), r"\1/drain"),
+    (re.compile(r"(sg13_[lh]v_[np]mos)/2\b", re.IGNORECASE), r"\1/gate"),
+    (re.compile(r"(sg13_[lh]v_[np]mos)/3\b", re.IGNORECASE), r"\1/source"),
+    (re.compile(r"(sg13_[lh]v_[np]mos)/4\b", re.IGNORECASE), r"\1/bulk"),
+)
 
 
 class _InspectCrashed(Exception):
@@ -74,6 +87,22 @@ def _run_isolated(target: Callable[..., Any], args: tuple[Any, ...], timeout: fl
         recv.close()
         send.close()
         proc.close()
+
+
+def _format_mos_terminals(text: str) -> str:
+    for pattern, replacement in MOS_PORT_TRANSLATIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def _format_si_length(raw: str) -> str:
+    try:
+        val = float(raw)
+    except ValueError:
+        return raw
+    if 0 < abs(val) < 1e-3:
+        return f"{round(val * 1e6, 4):g}u"
+    return raw
 
 
 class LayoutJudge:
@@ -151,15 +180,25 @@ class LayoutJudge:
                             Measurement("drc", float(violations), "violations", False),
                         ),
                         f"DRC failed with {violations} violation(s)",
+                        details={"drc_violations": magic.drc_violations}
+                        if magic.drc_violations
+                        else {},
                     )
 
                 magic.timeout = rem_time()
                 extracted = magic.extract_lvs(gds, expected_top, work)
+                netgen = NetgenRunner(pdk_root=self.pdk_root, timeout=rem_time())
                 try:
-                    NetgenRunner(pdk_root=self.pdk_root, timeout=rem_time()).lvs(
-                        extracted, reference, expected_top, work
-                    )
+                    netgen.lvs(extracted, reference, expected_top, work)
                 except ValueError:
+                    extracted_text = extracted.read_text(encoding="utf-8", errors="replace")
+                    lvs_report = self._build_lvs_report(
+                        extracted_text,
+                        reference,
+                        expected_pins,
+                        expected_top=expected_top,
+                        lvs_output=netgen.last_report,
+                    )
                     return JudgeResult(
                         False,
                         0.0,
@@ -170,10 +209,13 @@ class LayoutJudge:
                             Measurement("lvs", 0.0, "match", False),
                         ),
                         self._lvs_failure(
-                            extracted.read_text(encoding="utf-8", errors="replace"),
+                            extracted_text,
                             reference,
                             expected_pins,
+                            expected_top=expected_top,
+                            lvs_output=netgen.last_report,
                         ),
+                        details={"lvs_report": lvs_report} if lvs_report else {},
                     )
 
                 magic.timeout = rem_time()
@@ -280,29 +322,277 @@ class LayoutJudge:
         rules_match = DRC_RULES_PATTERN.search(output)
         count_match = DRC_COUNT_PATTERN.search(output)
         if rules_match:
-            rules = sorted(re.findall(r"['\"]([^'\"]+)['\"]", rules_match.group(1)))
-            count = count_match.group(1) if count_match else str(len(rules))
+            raw_rules = re.findall(r"['\"]([^'\"]+)['\"]", rules_match.group(1))
+            rules = sorted(r for r in raw_rules if not is_ignored_drc_rule(r))
+            count = (
+                count_match.group(1)
+                if count_match and len(rules) == len(raw_rules)
+                else str(len(rules))
+            )
             return f"DRC failed with {count} violation(s): {', '.join(rules)}"
         return f"DRC failed: {output[-2_048:]}"
 
+    @staticmethod
+    def _extract_subckt_pins(netlist: str, expected_top: str | None = None) -> list[str]:
+        matches = SUBCKT_DECL_PATTERN.findall(netlist)
+        if not matches:
+            return []
+        if expected_top:
+            for name, pin_text in matches:
+                if name.lower() == expected_top.lower():
+                    return pin_text.split()
+        return matches[-1][1].split()
+
     @classmethod
-    def _lvs_failure(cls, extracted: str, reference: Path, expected_pins: list[str]) -> str:
-        subckt_match = SUBCKT_PATTERN.search(extracted)
-        extracted_pins = subckt_match.group(1).split() if subckt_match else []
-        missing_pins = [pin for pin in expected_pins if pin not in extracted_pins]
+    def _infer_top_name(cls, reference_text: str, expected_top: str | None = None) -> str | None:
+        if expected_top:
+            return expected_top
+        matches = SUBCKT_DECL_PATTERN.findall(reference_text)
+        return matches[-1][0] if matches else None
+
+    @classmethod
+    def _lvs_failure(
+        cls,
+        extracted: str,
+        reference: Path,
+        expected_pins: list[str],
+        expected_top: str | None = None,
+        lvs_output: str = "",
+    ) -> str:
+        reference_text = reference.read_text(encoding="utf-8", errors="replace")
+        top_name = cls._infer_top_name(reference_text, expected_top)
+        extracted_pins = cls._extract_subckt_pins(extracted, top_name)
+        extracted_lower = {pin.lower() for pin in extracted_pins}
+        missing_pins = [pin for pin in expected_pins if pin.lower() not in extracted_lower]
         if missing_pins:
             return f"LVS mismatch; missing top-level pins: {', '.join(missing_pins)}"
 
-        submitted_devices = cls._mos_dimensions(extracted)
-        required_devices = cls._mos_dimensions(
-            reference.read_text(encoding="utf-8", errors="replace")
+        report = cls._build_lvs_report(
+            extracted,
+            reference,
+            expected_pins,
+            expected_top=top_name,
+            lvs_output=lvs_output,
         )
-        if submitted_devices != required_devices:
+        if report.get("property_errors"):
+            first_prop = report["property_errors"][0]
+            return (
+                f"LVS mismatch; {first_prop['device']} parameter {first_prop['property']} "
+                f"is {first_prop['layout']} in layout vs {first_prop['reference']} in reference"
+            )
+
+        submitted_devices = cls._mos_dimensions(extracted)
+        required_devices = cls._mos_dimensions(reference_text)
+        has_device_mismatch = any(
+            row["mismatch"] and "number of nets" not in row["layout"].lower()
+            for row in report.get("summary_rows", [])
+        )
+        if submitted_devices != required_devices and (not lvs_output or has_device_mismatch):
             submitted = cls._format_mos_dimensions(submitted_devices)
             required = cls._format_mos_dimensions(required_devices)
             return f"LVS mismatch; extracted MOS dimensions: {submitted}; required: {required}"
 
+        if report.get("net_mismatches"):
+            nets = []
+            for item in report["net_mismatches"]:
+                for net_label in (item["layout_net"], item["reference_net"]):
+                    cleaned = net_label.removeprefix("Net:").strip()
+                    if cleaned and not cleaned.startswith("(") and cleaned not in nets:
+                        nets.append(cleaned)
+            if nets:
+                return f"LVS mismatch; connectivity mismatch on net(s): {', '.join(nets[:6])}"
+
+        if report.get("pin_mismatches"):
+            bad_pins = [
+                row["reference_pin"] or row["layout_pin"]
+                for row in report["pin_mismatches"]
+                if row["mismatch"]
+            ]
+            if bad_pins:
+                return f"LVS mismatch; pin connection mismatch on: {', '.join(bad_pins[:6])}"
+
         return "LVS mismatch; extracted connectivity does not match the reference inverter"
+
+    @classmethod
+    def _build_lvs_report(
+        cls,
+        extracted: str,
+        reference: Path,
+        expected_pins: list[str],
+        expected_top: str | None = None,
+        lvs_output: str = "",
+    ) -> dict[str, Any]:
+        reference_text = reference.read_text(encoding="utf-8", errors="replace")
+        top_name = cls._infer_top_name(reference_text, expected_top)
+        extracted_pins = cls._extract_subckt_pins(extracted, top_name)
+        extracted_lower = {pin.lower() for pin in extracted_pins}
+        expected_lower = {pin.lower() for pin in expected_pins}
+        missing_pins = [pin for pin in expected_pins if pin.lower() not in extracted_lower]
+        extra_pins = [pin for pin in extracted_pins if pin.lower() not in expected_lower]
+
+        submitted_devices = cls._mos_dimensions(extracted)
+        required_devices = cls._mos_dimensions(reference_text)
+
+        parsed = cls._parse_netgen_report(lvs_output, top_name) if lvs_output else {}
+        return {
+            "expected_pins": expected_pins,
+            "extracted_pins": extracted_pins,
+            "missing_pins": missing_pins,
+            "extra_pins": extra_pins,
+            "extracted_devices": cls._format_mos_dimensions(submitted_devices),
+            "reference_devices": cls._format_mos_dimensions(required_devices),
+            "summary_rows": parsed.get("summary_rows", []),
+            "property_errors": parsed.get("property_errors", []),
+            "pin_mismatches": parsed.get("pin_mismatches", []),
+            "net_mismatches": parsed.get("net_mismatches", []),
+            "final_result": parsed.get("final_result", ""),
+        }
+
+    @staticmethod
+    def _parse_netgen_report(lvs_output: str, top_name: str | None = None) -> dict[str, Any]:
+        lines = lvs_output.splitlines()
+        summary_rows: list[dict[str, Any]] = []
+        property_errors: list[dict[str, str]] = []
+        pin_mismatches: list[dict[str, Any]] = []
+        net_mismatches: list[dict[str, Any]] = []
+        final_result = ""
+
+        def matches_top_header(header_line: str) -> bool:
+            if "|" not in header_line or "Circuit 1:" not in header_line:
+                return False
+            if not top_name:
+                return True
+            left, right = header_line.split("|", 1)
+            c1 = left.split("Circuit 1:", 1)[-1].strip()
+            c2 = right.split("Circuit 2:", 1)[-1].strip()
+            return c1.lower() == top_name.lower() or c2.lower() == top_name.lower()
+
+        i = 0
+        current_prop_device = ""
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            if stripped.startswith("Final result:"):
+                final_result = stripped.removeprefix("Final result:").strip()
+
+            prop_header = PROPERTY_HEADER_PATTERN.match(stripped)
+            if prop_header:
+                current_prop_device = f"{prop_header.group(1)} vs {prop_header.group(2)}"
+                i += 1
+                continue
+
+            prop_line = PROPERTY_LINE_PATTERN.match(line)
+            if prop_line and current_prop_device:
+                prop_name, c1_val, c2_val, tail = prop_line.groups()
+                property_errors.append(
+                    {
+                        "device": current_prop_device,
+                        "property": prop_name.upper(),
+                        "layout": _format_si_length(c1_val),
+                        "reference": _format_si_length(c2_val),
+                        "detail": tail.strip(" ()"),
+                    }
+                )
+                i += 1
+                continue
+
+            if stripped == "Subcircuit summary:" and i + 1 < len(lines):
+                if matches_top_header(lines[i + 1]):
+                    summary_rows = []
+                    i += 3  # skip header and dashed separator
+                    while i < len(lines) and not lines[i].strip().startswith("---"):
+                        row_line = lines[i]
+                        if "|" in row_line:
+                            left, right = row_line.split("|", 1)
+                            mismatch = (
+                                "**Mismatch**" in row_line or "(no matching" in row_line.lower()
+                            )
+                            summary_rows.append(
+                                {
+                                    "layout": left.replace("**Mismatch**", "").strip(),
+                                    "reference": right.replace("**Mismatch**", "").strip(),
+                                    "mismatch": mismatch,
+                                }
+                            )
+                        i += 1
+                    continue
+
+            if stripped == "Subcircuit pins:" and i + 1 < len(lines):
+                if matches_top_header(lines[i + 1]):
+                    pin_mismatches = []
+                    i += 3  # skip header and dashed separator
+                    while i < len(lines) and not lines[i].strip().startswith("---"):
+                        row_line = lines[i]
+                        if "|" in row_line:
+                            left, right = row_line.split("|", 1)
+                            l_pin = left.replace("**Mismatch**", "").strip()
+                            r_pin = right.replace("**Mismatch**", "").strip()
+                            mismatch = (
+                                "**Mismatch**" in row_line
+                                or "(no " in row_line.lower()
+                                or l_pin.lower() != r_pin.lower()
+                            )
+                            pin_mismatches.append(
+                                {
+                                    "layout_pin": l_pin,
+                                    "reference_pin": r_pin,
+                                    "mismatch": mismatch,
+                                }
+                            )
+                        i += 1
+                    continue
+
+            if stripped.startswith("NET mismatches:") and i + 1 < len(lines):
+                if matches_top_header(lines[i + 1]):
+                    net_mismatches = []
+                    i += 2
+                    current_net: dict[str, Any] | None = None
+                    while i < len(lines):
+                        row_line = lines[i]
+                        row_stripped = row_line.strip()
+                        if (
+                            row_stripped.startswith("DEVICE mismatches:")
+                            or row_stripped.startswith("Netlists ")
+                            or row_stripped.startswith("Subcircuit pins:")
+                            or row_stripped.startswith("Final result:")
+                        ):
+                            break
+                        if row_stripped.startswith("---") or not row_stripped:
+                            current_net = None
+                            i += 1
+                            continue
+                        parts = COLUMN_SPLIT_PATTERN.split(row_line, maxsplit=1)
+                        if len(parts) == 2:
+                            left, right = parts
+                            l_clean = _format_mos_terminals(left.strip())
+                            r_clean = _format_mos_terminals(right.strip())
+                            net_prefixes = ("Net:", "(no matching net)")
+                            if l_clean.startswith(net_prefixes) or r_clean.startswith(net_prefixes):
+                                current_net = {
+                                    "layout_net": l_clean or "-",
+                                    "reference_net": r_clean or "-",
+                                    "layout_connections": [],
+                                    "reference_connections": [],
+                                }
+                                net_mismatches.append(current_net)
+                            elif current_net is not None:
+                                if l_clean:
+                                    current_net["layout_connections"].append(l_clean)
+                                if r_clean:
+                                    current_net["reference_connections"].append(r_clean)
+                        i += 1
+                    continue
+
+            i += 1
+
+        return {
+            "summary_rows": summary_rows,
+            "property_errors": property_errors,
+            "pin_mismatches": pin_mismatches,
+            "net_mismatches": net_mismatches[:20],
+            "final_result": final_result,
+        }
 
     @staticmethod
     def _mos_dimensions(netlist: str) -> list[tuple[str, str, str]]:
@@ -318,7 +608,7 @@ class LayoutJudge:
     def _format_mos_dimensions(devices: list[tuple[str, str, str]]) -> str:
         return (
             ", ".join(
-                f"{model.removeprefix('sg13_lv_')} W={width} L={length}"
+                f"{model.removeprefix('sg13_lv_').removeprefix('sg13_hv_')} W={width} L={length}"
                 for model, width, length in devices
             )
             or "none"
