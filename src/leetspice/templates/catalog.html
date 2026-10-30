@@ -8,6 +8,37 @@
   </div>
   <p class="hero-copy">Learn circuit design, submit real SPICE netlists, and climb the rankings by engineering a better tradeoff.<span class="hero-support">The highest-ranking students automatically earn Fundación Fulgor scholarships.</span></p>
 </section>
+
+{% if welcome %}
+{% set ws = progress.get(welcome.slug, 'not_started') if progress else 'not_started' %}
+<div class="welcome-gate{% if ws == 'completed' %} welcome-gate--done{% endif %}">
+  <div class="welcome-gate__step">
+    {% if ws == 'completed' %}
+    <div class="welcome-gate__icon welcome-gate__icon--done">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    {% else %}
+    <div class="welcome-gate__icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </div>
+    {% endif %}
+    <div class="welcome-gate__body">
+      <p class="welcome-gate__label">{% if ws == 'completed' %}STEP COMPLETE{% else %}REQUIRED FIRST STEP{% endif %}</p>
+      <h3 class="welcome-gate__title">{{ welcome.title }}</h3>
+      <p class="welcome-gate__summary">{{ welcome.summary }}</p>
+    </div>
+    <a class="welcome-gate__cta" href="/challenges/{{ welcome.slug }}">
+      {% if ws == 'completed' %}Review setup{% else %}Get started{% endif %} <span>→</span>
+    </a>
+  </div>
+  {% if ws != 'completed' and current_user %}
+  <p class="welcome-gate__notice">All circuit design challenges unlock once you complete this step.</p>
+  {% elif ws != 'completed' %}
+  <p class="welcome-gate__notice"><a href="/login">Log in</a> or <a href="/register">create an account</a> to track your progress.</p>
+  {% endif %}
+</div>
+{% endif %}
+
 <section class="section-head"><h2>Open benches</h2><span>{{ challenges_count }} {% if show_all %}TOTAL{% else %}ACTIVE{% endif %}</span></section>
 
 {% if current_user and current_user.is_admin %}
@@ -34,8 +65,10 @@
         {% if current_user %}
         {% if status == 'completed' %}
         <span class="progress-badge completed"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SOLVED</span>
-        {% elif status == 'in_progress' %}
-        <span class="progress-badge in-progress"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>IN PROGRESS</span>
+        {% elif status == 'judging' %}
+        <span class="progress-badge in-progress"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>JUDGING</span>
+        {% elif status == 'attempted' %}
+        <span class="progress-badge attempted"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/></svg>ATTEMPTED</span>
         {% elif status == 'locked' %}
         <span class="progress-badge locked"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>LOCKED</span>
         {% endif %}
