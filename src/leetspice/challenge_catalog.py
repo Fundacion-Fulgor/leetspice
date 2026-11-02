@@ -86,16 +86,18 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
         interface = manifest.get("interface")
         if not isinstance(interface, dict):
             raise ValueError(f"{source}: interface must be an object")
-        expected_subckt = interface.get("subckt", interface.get("top_cell"))
-        pins = interface.get("pins")
-        if not isinstance(expected_subckt, str) or not IDENTIFIER.fullmatch(expected_subckt):
+        raw_subckt = interface.get("subckt", interface.get("top_cell"))
+        raw_pins = interface.get("pins")
+        if not isinstance(raw_subckt, str) or not IDENTIFIER.fullmatch(raw_subckt):
             raise ValueError(f"{source}: invalid interface subckt/top_cell")
         if (
-            not isinstance(pins, list)
-            or not pins
-            or not all(isinstance(pin, str) and IDENTIFIER.fullmatch(pin) for pin in pins)
+            not isinstance(raw_pins, list)
+            or not raw_pins
+            or not all(isinstance(pin, str) and IDENTIFIER.fullmatch(pin) for pin in raw_pins)
         ):
             raise ValueError(f"{source}: interface pins must be non-empty identifiers")
+        expected_subckt = raw_subckt
+        pins = raw_pins
 
         if (kind == "gds") != (backend == "klayout"):
             raise ValueError(f"{source}: GDS submissions require the klayout backend")

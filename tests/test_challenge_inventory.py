@@ -6,6 +6,7 @@ from leetspice.judge.validator import validate_netlist
 
 CHALLENGES = Path(__file__).parents[1] / "challenges"
 REQUIRED_TRACKS = {
+    "Getting Started",
     "MOS Foundations",
     "Gain Stages",
     "Biasing",
@@ -43,7 +44,7 @@ def test_challenge_library_is_complete_and_valid() -> None:
             if values["judge_backend"] == "characterization":
                 assert (source.parent / manifest["judge_config"]["definition"]).is_file()
                 assert (source.parent / "judge/reference.spice").is_file()
-        else:
+        elif values["submission_kind"] == "gds":
             reference = source.parent / manifest["judge_config"]["reference_netlist"]
             assert reference.is_file()
             assert (source.parent / manifest["judge_config"]["post_layout_definition"]).is_file()

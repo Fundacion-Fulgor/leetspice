@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Sequence
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
@@ -175,9 +175,7 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
 def _welcome_challenge(db: Session) -> Challenge | None:
     """Return the welcome challenge if it exists and is active."""
     return db.scalar(
-        select(Challenge).where(
-            Challenge.slug == WELCOME_SLUG, Challenge.is_active.is_(True)
-        )
+        select(Challenge).where(Challenge.slug == WELCOME_SLUG, Challenge.is_active.is_(True))
     )
 
 
@@ -632,7 +630,7 @@ async def submit(
             payload_size=0,
             payload_sha256=sentinel,
             status="accepted",
-            accepted_at=datetime.now(timezone.utc),
+            accepted_at=datetime.now(UTC),
         )
         db.add(submission)
         db.commit()
