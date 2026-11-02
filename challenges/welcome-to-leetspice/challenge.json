@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "slug": "welcome-to-leetspice",
+  "title": "Welcome: Install IIC-OSIC-TOOLS",
+  "summary": "Set up the open-source EDA toolchain before your first circuit challenge.",
+  "track": "Getting Started",
+  "difficulty": "introductory",
+  "verification_version": 1,
+  "curriculum_order": 0,
+  "prerequisites": [],
+  "is_ranked": false,
+  "specification_file": "specification.md",
+  "interface": {"subckt": "welcome", "pins": ["ready"]},
+  "submission": {"kind": "onboarding"},
+  "judge_backend": "onboarding",
+  "judge_config": {},
+  "score_unit": "points",
+  "lower_is_better": false,
+  "is_active": true
+}

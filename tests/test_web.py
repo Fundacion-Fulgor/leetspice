@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from leetspice import db
 from leetspice.models import Challenge, Submission, User
+from leetspice.web import WELCOME_SLUG
 
 CHALLENGES = Path(__file__).parents[1] / "challenges"
 
@@ -17,6 +18,9 @@ def no_prerequisites(client):
     with db.SessionLocal() as session:
         for challenge in session.scalars(select(Challenge)):
             challenge.prerequisites = []
+            # Deactivating the welcome challenge also lifts the global onboarding gate.
+            if challenge.slug == WELCOME_SLUG:
+                challenge.is_active = False
         session.commit()
 
 
@@ -339,7 +343,7 @@ def test_demo_challenge_identifies_target_pdk(client):
     assert "IHP SG13G2" in response.text
 
 
-def test_layout_challenge_upload_and_assets(client, csrf, register):
+def test_layout_challenge_upload_and_assets(client, csrf, register, no_prerequisites):
     register()
     page = client.get("/challenges/demo-cmos-inverter-layout")
     assert page.status_code == 200
@@ -373,7 +377,7 @@ def test_layout_challenge_upload_and_assets(client, csrf, register):
         assert submission.payload_size == len(payload)
 
 
-def test_layout_challenge_rejects_wrong_or_empty_upload(client, csrf, register):
+def test_layout_challenge_rejects_wrong_or_empty_upload(client, csrf, register, no_prerequisites):
     register()
     page = client.get("/challenges/demo-cmos-inverter-layout")
     wrong = client.post(
@@ -427,3 +431,41 @@ def test_manifest_seeding_and_grouping(client):
             elif c.slug == "demo-cmos-inverter-layout":
                 assert c.difficulty == "intermediate"
                 assert "DRC" in c.description
+
+
+def test_welcome_gate_blocks_submissions_until_onboarding_is_confirmed(client, csrf, register):
+    with db.SessionLocal() as session:
+        for challenge in session.scalars(select(Challenge)):
+            challenge.prerequisites = []
+        session.commit()
+    register()
+    netlist = ".subckt inverter in out vdd vss\nR1 vdd out  10k\n.ends inverter\n"
+
+    catalog = client.get("/")
+    assert "REQUIRED FIRST STEP" in catalog.text
+
+    page = client.get("/challenges/demo-cmos-inverter")
+    blocked = client.post(
+        "/challenges/demo-cmos-inverter/submit",
+        data={"csrf_token": csrf(page), "netlist": netlist},
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 403
+    assert "Complete the welcome challenge before submitting." in blocked.text
+
+    welcome = client.get(f"/challenges/{WELCOME_SLUG}")
+    confirmed = client.post(
+        f"/challenges/{WELCOME_SLUG}/submit",
+        data={"csrf_token": csrf(welcome)},
+        follow_redirects=False,
+    )
+    assert confirmed.status_code == 303
+    assert "STEP COMPLETE" in client.get("/").text
+
+    page = client.get("/challenges/demo-cmos-inverter")
+    allowed = client.post(
+        "/challenges/demo-cmos-inverter/submit",
+        data={"csrf_token": csrf(page), "netlist": netlist},
+        follow_redirects=False,
+    )
+    assert allowed.status_code == 303
