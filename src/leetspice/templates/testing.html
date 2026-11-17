@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Testing bench · LeetSpice{% endblock %}
+{% block content %}
+<section class="challenge-title"><div><p class="eyebrow">TESTER WORKSPACE</p><h1>Testing bench</h1></div><a class="arrow-link" href="/?show_all=1">Browse drafts →</a></section>
+<section class="panel testing-bench">
+  <div class="panel-head"><h2>Challenge verification</h2><span>CLAIMS LAST {{ claim_days }} DAYS</span></div>
+  <p class="testing-note">Your submissions here are test runs: they are judged normally but never count toward any ranking. Claim a challenge so nobody else tests it at the same time, then verify it once the judge accepts your solution and the score is right.</p>
+  {% set keep = ('?q=' ~ search|urlencode) if search else '' %}
+  <form method="get" action="/testing" class="testing-search" role="search">
+    <input type="search" name="q" value="{{ search }}" maxlength="100" placeholder="Search challenges by name" aria-label="Search challenges by name">
+    <button>Search</button>{% if search %}<a href="/testing">Clear</a>{% endif %}
+  </form>
+  <p class="testing-note">Published challenges that still need verification come first, then unverified drafts, then verified ones.</p>
+  {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+  <div class="testing-table" role="table" aria-label="Challenge verification status">
+    <div class="testing-row testing-head" role="row"><span role="columnheader">Challenge</span><span role="columnheader">Status</span><span role="columnheader">Your last run</span><span role="columnheader">Actions</span></div>
+    {% for row in rows %}{% set challenge = row.challenge %}{% set state = challenge.verification_status %}{% set own = challenge.created_by_id == current_user.id and not current_user.is_admin %}
+    <div class="testing-row" role="row">
+      <div role="cell">
+        <a class="testing-challenge" href="/challenges/{{ challenge.slug }}">{{ challenge.title }}</a>
+        <small>{{ challenge.track }}{% if not challenge.is_active %} · <b class="draft-tag">DRAFT</b>{% endif %}{% if challenge.created_by %} · by {{ challenge.created_by.display_name }}{% endif %}</small>
+      </div>
+      <div role="cell">
+        <span class="verify-status verify-status--{{ state }}">{{ row.status_label }}</span>
+        {% if state == 'testing' and challenge.claimed_by %}<small>{{ challenge.claimed_by.display_name }} · until {{ row.expires_at.strftime('%Y-%m-%d') }}</small>{% endif %}
+        {% if state == 'verified' and challenge.verified_by %}<small>{{ challenge.verified_by.display_name }} · v{{ challenge.verified_version }}</small>{% endif %}
+        {% if state == 'problems' and challenge.verification_notes %}<small class="verify-notes">{{ challenge.verification_notes }}</small>{% endif %}
+      </div>
+      <div role="cell">
+        {% if row.latest %}<a href="/submissions/{{ row.latest.id }}">{{ row.latest.status|upper }}</a>{% if row.latest.score is not none %} <small>{{ "%.6g"|format(row.latest.score) }} {{ challenge.score_unit }}</small>{% endif %}{% if row.latest.verification_version != challenge.verification_version %} <small>(old version)</small>{% endif %}{% else %}<small>Not tried</small>{% endif %}
+      </div>
+      <div role="cell" class="testing-actions">
+        {% if state == 'unverified' and own %}
+        <small class="verify-notes">You created this challenge: another tester has to verify it.</small>
+        {% elif state == 'unverified' %}
+        <form method="post" action="/testing/{{ challenge.slug }}/claim{{ keep }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Claim</button></form>
+        {% elif state == 'testing' and (challenge.claimed_by_id == current_user.id or current_user.is_admin) %}
+        <form method="post" action="/testing/{{ challenge.slug }}/verify{{ keep }}" class="verify-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label><input type="checkbox" name="score_confirmed"> Score is correct</label><input name="notes" maxlength="2000" placeholder="Notes (optional)"><button class="primary">Mark verified</button></form>
+        <form method="post" action="/testing/{{ challenge.slug }}/release{{ keep }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Release</button></form>
+        {% endif %}
+        {% if state == 'verified' or (state == 'testing' and (challenge.claimed_by_id == current_user.id or current_user.is_admin)) %}
+        <form method="post" action="/testing/{{ challenge.slug }}/report{{ keep }}" class="verify-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="notes" maxlength="2000" required placeholder="What is wrong?"><button>Report problem</button></form>
+        {% endif %}
+        {% if state == 'problems' and (challenge.created_by_id == current_user.id or current_user.is_admin) %}
+        <form method="post" action="/testing/{{ challenge.slug }}/reopen{{ keep }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Mark fixed</button></form>
+        {% endif %}
+        {% if row.can_edit %}<a class="testing-edit" href="/admin/edit-challenge?slug={{ challenge.slug }}">Edit</a>{% endif %}
+      </div>
+    </div>
+    {% else %}
+    <p class="empty">{% if search %}No challenge matches “{{ search }}”.{% else %}No challenges yet.{% endif %}</p>
+    {% endfor %}
+  </div>
+  <p class="testing-note"><a href="/admin/create-challenge">Create a new challenge</a> — it stays a draft until it is verified and an admin publishes it.</p>
+</section>
+{% endblock %}

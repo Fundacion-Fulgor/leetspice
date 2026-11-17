@@ -47,6 +47,11 @@ def _current_user(request: Request, db: Session) -> User | None:
     return db.get(User, user_id) if user_id else None
 
 
+def _can_preview(user: User | None) -> bool:
+    """Admins and testers can open and submit to draft (inactive) challenges."""
+    return user is not None and (user.is_admin or user.is_tester)
+
+
 def _completed_slugs(db: Session, user: User | None) -> set[str]:
     """Return the set of challenge slugs for which *user* has an accepted submission."""
     if user is None:
@@ -85,7 +90,7 @@ def _challenge_progress(
     progress: dict[str, str] = {}
     for challenge in challenges:
         prereqs = challenge.prerequisites or []
-        if prereqs and not all(slug in completed for slug in prereqs):
+        if not user.is_tester and prereqs and not all(slug in completed for slug in prereqs):
             progress[challenge.slug] = "locked"
         elif challenge.slug in completed:
             progress[challenge.slug] = "completed"
@@ -131,6 +136,7 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
             Submission.challenge_id == challenge.id,
             Submission.verification_version == challenge.verification_version,
             Submission.status == "accepted",
+            Submission.is_test.is_(False),
             Submission.score.is_not(None),
         )
         .group_by(Submission.user_id)
@@ -145,8 +151,7 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
 @router.get("/", response_class=HTMLResponse)
 def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
     user = _current_user(request, db)
-    is_admin = user is not None and user.is_admin
-    show_all = is_admin and request.query_params.get("show_all") == "1"
+    show_all = _can_preview(user) and request.query_params.get("show_all") == "1"
 
     query = select(Challenge).order_by(Challenge.curriculum_order, Challenge.id)
     if not show_all:
@@ -442,10 +447,9 @@ def challenge_detail(
     slug: str, request: Request, db: Annotated[Session, Depends(get_session)]
 ) -> Response:
     user = _current_user(request, db)
-    is_admin = user is not None and user.is_admin
 
-    # Fetch challenge. Admins can see inactive ones.
-    if is_admin:
+    # Fetch challenge. Admins and testers can see inactive ones.
+    if _can_preview(user):
         challenge = db.scalar(select(Challenge).where(Challenge.slug == slug))
     else:
         challenge = db.scalar(
@@ -469,7 +473,10 @@ def challenge_detail(
 
     completed = _completed_slugs(db, user)
     prereqs = challenge.prerequisites or []
-    prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
+    # Testers must be able to try any challenge, so prerequisites never lock them out.
+    prerequisites_met = (user is not None and user.is_tester) or all(
+        prereq_slug in completed for prereq_slug in prereqs
+    )
     missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
 
     is_preview = request.query_params.get("preview") == "1"
@@ -513,9 +520,10 @@ def challenge_asset(
     request: Request,
     db: Annotated[Session, Depends(get_session)],
 ) -> FileResponse:
-    challenge = db.scalar(
-        select(Challenge).where(Challenge.slug == slug, Challenge.is_active.is_(True))
-    )
+    query = select(Challenge).where(Challenge.slug == slug)
+    if not _can_preview(_current_user(request, db)):
+        query = query.where(Challenge.is_active.is_(True))
+    challenge = db.scalar(query)
     if challenge is None:
         raise HTTPException(status_code=404)
     path, download_name = _challenge_asset(request, challenge, asset_id)
@@ -541,8 +549,7 @@ async def submit(
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
-    is_admin = user is not None and user.is_admin
-    if is_admin:
+    if _can_preview(user):
         challenge = db.scalar(select(Challenge).where(Challenge.slug == slug))
     else:
         challenge = db.scalar(
@@ -552,7 +559,7 @@ async def submit(
         raise HTTPException(status_code=404)
     completed = _completed_slugs(db, user)
     prereqs = challenge.prerequisites or []
-    if prereqs and not all(slug in completed for slug in prereqs):
+    if not user.is_tester and prereqs and not all(slug in completed for slug in prereqs):
         missing = _missing_prerequisites(db, challenge, completed)
         return templates.TemplateResponse(
             request,
@@ -586,6 +593,7 @@ async def submit(
                 user_id=user.id,
                 challenge_id=challenge.id,
                 verification_version=challenge.verification_version,
+                is_test=user.is_tester,
                 submission_kind="gds",
                 payload_binary=payload,
                 original_filename=filename[:255],
@@ -600,6 +608,7 @@ async def submit(
                 user_id=user.id,
                 challenge_id=challenge.id,
                 verification_version=challenge.verification_version,
+                is_test=user.is_tester,
                 submission_kind="netlist",
                 netlist=netlist,
                 payload_size=len(encoded),

@@ -12,6 +12,10 @@
   .ls-card .icon { font-size:28px; margin-bottom:12px; color:#d56a3a; }
   .ls-card .number { font-size:36px; font-weight:800; color:#111815; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
   .ls-card .label { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:#888; margin-top:6px; }
+  .ls-tester-links { display:flex; flex-wrap:wrap; gap:16px; justify-content:center; }
+  .ls-tester-links a { background:white; border-radius:12px; padding:18px 26px; text-decoration:none; color:#111815; font-weight:600; box-shadow:0 4px 16px rgba(0,0,0,.06); }
+  .ls-tester-links a:hover { box-shadow:0 8px 24px rgba(0,0,0,.1); }
+  .ls-tester-links i { color:#d56a3a; margin-right:6px; }
   @media (max-width: 700px) { .ls-cards { grid-template-columns: repeat(2, 1fr); } .ls-logo { font-size:48px; } }
 </style>
 
@@ -40,11 +44,24 @@
       <div class="label">Today</div>
     </div>
   </div>
+  <div class="ls-tester-links" id="tester-links" hidden>
+    <a href="/admin/create-challenge"><i class="fa-solid fa-plus-circle"></i> New challenge</a>
+    <a href="/admin/challenge/list"><i class="fa-solid fa-bolt"></i> My challenges</a>
+    <a href="/testing"><i class="fa-solid fa-flask"></i> Testing bench</a>
+  </div>
 </div>
 
 <script>
 fetch('/admin/admin-stats-api')
-  .then(function(r) { return r.json(); })
+  .then(function(r) {
+    if (!r.ok) {
+      // Testers cannot read site-wide statistics: show their shortcuts instead.
+      document.querySelector('.ls-cards').hidden = true;
+      document.getElementById('tester-links').hidden = false;
+      throw new Error('stats not available');
+    }
+    return r.json();
+  })
   .then(function(d) {
     document.getElementById('stat-users').textContent = d.users;
     document.getElementById('stat-challenges').textContent = d.challenges;

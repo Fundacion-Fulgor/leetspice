@@ -21,6 +21,8 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(80))
     password_hash: Mapped[str] = mapped_column(String(255))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Testers try out and verify challenges; their submissions never reach the rankings.
+    is_tester: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     submissions: Mapped[list["Submission"]] = relationship(back_populates="user")
@@ -55,10 +57,25 @@ class Challenge(Base):
     lower_is_better: Mapped[bool] = mapped_column(Boolean, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    # Tester verification workflow: unverified -> testing -> verified | problems.
+    verification_status: Mapped[str] = mapped_column(
+        String(20), default="unverified", server_default="unverified"
+    )
+    claimed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_version: Mapped[int | None] = mapped_column(nullable=True)
+    verification_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     submissions: Mapped[list["Submission"]] = relationship(
         back_populates="challenge", cascade="all, delete-orphan"
     )
+    created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id])
+    claimed_by: Mapped[User | None] = relationship(foreign_keys=[claimed_by_id])
+    verified_by: Mapped[User | None] = relationship(foreign_keys=[verified_by_id])
 
 
 class Submission(Base):
@@ -81,6 +98,8 @@ class Submission(Base):
     payload_size: Mapped[int] = mapped_column(default=0)
     payload_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
+    # Set when a tester submits; test submissions are excluded from every ranking.
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

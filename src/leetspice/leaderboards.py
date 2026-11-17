@@ -50,6 +50,7 @@ def global_leaderboard(session: Session) -> list[GlobalLeader]:
             Challenge.is_active.is_(True),
             Challenge.is_ranked.is_(True),
             Submission.status == "accepted",
+            Submission.is_test.is_(False),
             Submission.score.is_not(None),
         )
         .options(joinedload(Submission.user), joinedload(Submission.challenge))

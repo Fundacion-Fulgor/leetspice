@@ -1,7 +1,13 @@
 """SQLAdmin panel with session-based authentication, statistics, and leaderboard."""
 
+import io
+import json
+import shutil
+import tempfile
+import zipfile
 from collections.abc import Mapping, Sequence
 from html import escape
+from pathlib import Path
 from typing import Any
 
 import anyio
@@ -18,11 +24,13 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
+from . import db
 from .auth import read_session
-from .config import Settings
+from .config import Settings, get_settings
 from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
 from .models import Challenge, Submission, User
+from .testing import can_tester_edit, invalidate_verification
 
 
 def _form_str(form: FormData, key: str, default: str = "") -> str:
@@ -117,11 +125,45 @@ class AdminAuth(AuthenticationBackend):
         user_id = payload.get("user_id")
         if not user_id:
             return RedirectResponse(request.url_for("login_form"), status_code=302)
-        with SessionLocal() as session:
+        with db.SessionLocal() as session:
             user = session.get(User, user_id)
-            if not user or not user.is_admin:
+            if not user or not (user.is_admin or user.is_tester):
                 return RedirectResponse(request.url_for("login_form"), status_code=302)
         return True
+
+
+# Settings used to read the session cookie; replaced by setup_admin() with the app's.
+_settings: Settings | None = None
+
+
+def _request_user(request: Request) -> User | None:
+    """Return the logged-in user for an admin-panel request, detached from its session."""
+    payload = read_session(request, _settings or get_settings())
+    user_id = payload.get("user_id")
+    if not user_id:
+        return None
+    with db.SessionLocal() as session:
+        return session.get(User, user_id)
+
+
+def _is_admin(request: Request) -> bool:
+    user = _request_user(request)
+    return user is not None and user.is_admin
+
+
+def _owns_draft(user: User, challenge: Challenge) -> bool:
+    """Admins manage any draft; testers only the unpublished drafts they created."""
+    return user.is_admin or (challenge.created_by_id == user.id and not challenge.is_active)
+
+
+class AdminOnlyMixin:
+    """Hide a view from testers: they only get challenge creation and their own challenges."""
+
+    def is_accessible(self, request: Request) -> bool:
+        return _is_admin(request)
+
+    def is_visible(self, request: Request) -> bool:
+        return _is_admin(request)
 
 
 # ---------------------------------------------------------------------------
@@ -129,13 +171,27 @@ class AdminAuth(AuthenticationBackend):
 # ---------------------------------------------------------------------------
 
 
-class UserAdmin(ModelView, model=User):
+class UserAdmin(AdminOnlyMixin, ModelView, model=User):
     name = "User"
     name_plural = "Users"
     icon = "fa-solid fa-user"
-    column_list = [User.id, User.email, User.display_name, User.is_admin, User.created_at]
+    column_list = [
+        User.id,
+        User.email,
+        User.display_name,
+        User.is_admin,
+        User.is_tester,
+        User.created_at,
+    ]
     column_searchable_list = [User.email, User.display_name]
-    column_sortable_list = [User.id, User.email, User.display_name, User.is_admin, User.created_at]
+    column_sortable_list = [
+        User.id,
+        User.email,
+        User.display_name,
+        User.is_admin,
+        User.is_tester,
+        User.created_at,
+    ]
     form_excluded_columns = [User.password_hash, User.submissions]
     can_create = False
     can_delete = True
@@ -152,6 +208,7 @@ class ChallengeAdmin(ModelView, model=Challenge):
         Challenge.track,
         Challenge.difficulty,
         Challenge.is_active,
+        Challenge.verification_status,
         Challenge.is_ranked,
         Challenge.curriculum_order,
     ]
@@ -166,13 +223,77 @@ class ChallengeAdmin(ModelView, model=Challenge):
         Challenge.curriculum_order,
     ]
     column_default_sort = [(Challenge.curriculum_order, False), (Challenge.id, False)]
-    form_excluded_columns = [Challenge.submissions]
+    form_excluded_columns = [
+        Challenge.submissions,
+        Challenge.created_by,
+        Challenge.claimed_by,
+        Challenge.verified_by,
+    ]
     can_create = False
     can_edit = True
     can_delete = True
 
+    # Fields a tester may never change: publishing and verification belong to the workflow.
+    TESTER_LOCKED_FIELDS = (
+        "is_active",
+        "verification_status",
+        "claimed_at",
+        "verified_at",
+        "verified_version",
+        "verification_notes",
+    )
 
-class SubmissionAdmin(ModelView, model=Submission):
+    def list_query(self, request: Request) -> Any:
+        query = super().list_query(request)
+        user = _request_user(request)
+        if user is not None and not user.is_admin:
+            query = query.where(Challenge.created_by_id == user.id)
+        return query
+
+    def count_query(self, request: Request) -> Any:
+        query = super().count_query(request)
+        user = _request_user(request)
+        if user is not None and not user.is_admin:
+            query = query.where(Challenge.created_by_id == user.id)
+        return query
+
+    def details_query(self, request: Request) -> Any:
+        query = super().details_query(request)
+        user = _request_user(request)
+        if user is not None and not user.is_admin:
+            query = query.where(Challenge.created_by_id == user.id)
+        return query
+
+    async def get_object_for_edit(self, request: Request) -> Any:
+        # Testers edit packages through EditChallengeView; this raw form is for admins.
+        return await super().get_object_for_edit(request) if _is_admin(request) else None
+
+    async def check_can_edit(self, request: Request, model: Any) -> bool:
+        return _is_admin(request)
+
+    async def check_can_delete(self, request: Request, model: Any) -> bool:
+        return _is_admin(request)
+
+    async def delete_model(self, request: Request, pk: Any) -> None:
+        if not _is_admin(request):
+            raise PermissionError("Only admins can delete challenges.")
+        await super().delete_model(request, pk)
+
+    async def on_model_change(
+        self, data: dict[str, Any], model: Any, is_created: bool, request: Request
+    ) -> None:
+        user = _request_user(request)
+        if user is None or not user.is_admin:
+            for field in self.TESTER_LOCKED_FIELDS:
+                data.pop(field, None)
+            return
+        publishing = bool(data.get("is_active")) and not model.is_active
+        status = data.get("verification_status", model.verification_status)
+        if publishing and status != "verified":
+            raise ValueError("Only verified challenges can be published.")
+
+
+class SubmissionAdmin(AdminOnlyMixin, ModelView, model=Submission):
     name = "Submission"
     name_plural = "Submissions"
     icon = "fa-solid fa-paper-plane"
@@ -199,8 +320,64 @@ class SubmissionAdmin(ModelView, model=Submission):
 
 
 # ---------------------------------------------------------------------------
-# Create Challenge view
+# Create / edit challenge views
 # ---------------------------------------------------------------------------
+
+MAX_ZIP_ENTRIES = 500
+MAX_ZIP_DECOMPRESSED = 50 * 1024 * 1024  # 50 MiB
+DESIGN_FILE_LABELS = {
+    ".sch": "Xschem schematic",
+    ".sym": "Xschem symbol",
+    ".gds": "GDSII layout",
+    ".spice": "SPICE netlist",
+    ".cir": "SPICE netlist",
+    ".lib": "SPICE library",
+}
+
+
+def _extract_zip_safely(zip_bytes: bytes, target: Path) -> None:
+    """Extract an uploaded ZIP into *target*, rejecting bombs, symlinks and path traversal."""
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        entries = zf.infolist()
+        if len(entries) > MAX_ZIP_ENTRIES:
+            raise ValueError(f"ZIP contains too many entries ({len(entries)} > {MAX_ZIP_ENTRIES})")
+        if sum(e.file_size for e in entries) > MAX_ZIP_DECOMPRESSED:
+            raise ValueError(
+                f"ZIP decompressed size exceeds {MAX_ZIP_DECOMPRESSED // (1024 * 1024)} MiB"
+            )
+        for entry in entries:
+            if entry.external_attr >> 28 == 0xA:
+                raise ValueError(f"ZIP contains a symlink: {entry.filename}")
+            try:
+                (target / entry.filename).resolve().relative_to(target.resolve())
+            except ValueError:
+                raise ValueError(f"ZIP contains path traversal: {entry.filename}") from None
+        zf.extractall(target)
+
+
+async def _save_design_files(form: FormData, package_dir: Path) -> list[dict[str, str]]:
+    """Store the uploaded downloadable design files and return their manifest assets."""
+    assets = []
+    for upload in form.getlist("design_files"):
+        if not isinstance(upload, UploadFile) or not upload.filename:
+            continue
+        fname = Path(upload.filename).name
+        if not fname:
+            continue
+        content = await upload.read()
+        if not content:
+            continue
+        (package_dir / fname).write_bytes(content)
+        ext = Path(fname).suffix.lower()
+        assets.append(
+            {
+                "id": fname.replace(".", "_").replace(" ", "_").lower(),
+                "label": f"{DESIGN_FILE_LABELS.get(ext, 'Design file')} ({ext})",
+                "path": fname,
+                "download_name": fname,
+            }
+        )
+    return assets
 
 
 class CreateChallengeView(BaseView):
@@ -218,8 +395,6 @@ class CreateChallengeView(BaseView):
     async def post_create_challenge(self, request: Request) -> Response:
         import json as _json
         import shutil
-        import tempfile
-        import zipfile
         from pathlib import Path as _Path
 
         form = await request.form()
@@ -238,7 +413,6 @@ class CreateChallengeView(BaseView):
         submission_kind = _form_str(form, "submission_kind", "netlist")
         score_unit = _form_str(form, "score_unit", "points")
         lower_is_better = form.get("lower_is_better") == "on"
-        is_active = form.get("is_active") == "on"
         is_ranked = form.get("is_ranked") == "on"
         verification_version = int(_form_str(form, "verification_version") or 1)
         prerequisites_raw = _form_str(form, "prerequisites").strip()
@@ -302,42 +476,7 @@ class CreateChallengeView(BaseView):
         try:
             package_dir.mkdir(parents=True, exist_ok=False)
 
-            zip_bytes = await judge_zip.read()
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-                tmp.write(zip_bytes)
-                tmp_path = tmp.name
-
-            MAX_ZIP_ENTRIES = 500
-            MAX_ZIP_DECOMPRESSED = 50 * 1024 * 1024  # 50 MiB
-            try:
-                with zipfile.ZipFile(tmp_path, "r") as zf:
-                    entries = zf.infolist()
-                    if len(entries) > MAX_ZIP_ENTRIES:
-                        raise ValueError(
-                            f"ZIP contains too many entries ({len(entries)} > {MAX_ZIP_ENTRIES})"
-                        )
-                    total_size = sum(e.file_size for e in entries)
-                    if total_size > MAX_ZIP_DECOMPRESSED:
-                        raise ValueError(
-                            f"ZIP decompressed size exceeds {MAX_ZIP_DECOMPRESSED // (1024 * 1024)} MiB"
-                        )
-                    for entry in entries:
-                        # Reject symlinks
-                        if entry.external_attr >> 28 == 0xA:
-                            raise ValueError(f"ZIP contains a symlink: {entry.filename}")
-                        # Resolve the target path and ensure it stays inside package_dir
-                        target = (package_dir / entry.filename).resolve()
-                        try:
-                            target.relative_to(package_dir.resolve())
-                        except ValueError:
-                            raise ValueError(
-                                f"ZIP contains path traversal: {entry.filename}"
-                            ) from None
-                    zf.extractall(package_dir)
-            finally:
-                import os
-
-                os.unlink(tmp_path)
+            _extract_zip_safely(await judge_zip.read(), package_dir)
 
             judge_def_path = "judge/definition.yaml"
             if not (package_dir / judge_def_path).is_file():
@@ -368,38 +507,7 @@ class CreateChallengeView(BaseView):
                 starter_path.write_text(starter_netlist, encoding="utf-8")
 
             # Process optional design files (assets for student download)
-            design_files_assets = []
-            design_files_raw = form.getlist("design_files")
-            for df in design_files_raw:
-                if not isinstance(df, UploadFile) or not df.filename:
-                    continue
-                fname = _Path(df.filename).name
-                if not fname:
-                    continue
-                df_bytes = await df.read()
-                if len(df_bytes) == 0:
-                    continue
-                dest = package_dir / fname
-                dest.write_bytes(df_bytes)
-                ext = _Path(fname).suffix.lower()
-                ext_labels = {
-                    ".sch": "Xschem schematic",
-                    ".sym": "Xschem symbol",
-                    ".gds": "GDSII layout",
-                    ".spice": "SPICE netlist",
-                    ".cir": "SPICE netlist",
-                    ".lib": "SPICE library",
-                }
-                label = f"{ext_labels.get(ext, 'Design file')} ({ext})"
-                asset_id = fname.replace(".", "_").replace(" ", "_").lower()
-                design_files_assets.append(
-                    {
-                        "id": asset_id,
-                        "label": label,
-                        "path": fname,
-                        "download_name": fname,
-                    }
-                )
+            design_files_assets = await _save_design_files(form, package_dir)
 
             judge_config = {"definition": judge_def_path}
             manifest = {
@@ -424,7 +532,6 @@ class CreateChallengeView(BaseView):
                 "score_unit": score_unit,
                 "lower_is_better": lower_is_better,
                 "is_active": False,
-                "intended_is_active": is_active,
                 "assets": design_files_assets,
             }
             if starter_netlist:
@@ -445,8 +552,13 @@ class CreateChallengeView(BaseView):
             except ValueError as ve:
                 raise ValueError(f"Validation failed: {ve}") from ve
 
+            author = _request_user(request)
             with SessionLocal() as session:
-                challenge = Challenge(slug=validated_slug, **values)
+                challenge = Challenge(
+                    slug=validated_slug,
+                    **values,
+                    created_by_id=author.id if author is not None else None,
+                )
                 session.add(challenge)
                 session.commit()
 
@@ -464,8 +576,11 @@ class CreateChallengeView(BaseView):
         if not slug:
             return RedirectResponse("/admin/challenge/list", status_code=302)
 
+        user = _request_user(request)
         with SessionLocal() as session:
             challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if challenge and user is not None and not _owns_draft(user, challenge):
+                return RedirectResponse("/testing", status_code=302)
             if challenge:
                 import json as _json
                 from pathlib import Path as _Path
@@ -476,7 +591,9 @@ class CreateChallengeView(BaseView):
                 manifest_path = challenges_root / slug / "challenge.json"
                 if manifest_path.exists():
                     manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
-                    challenge.is_active = manifest.get("intended_is_active", True)
+                    # New challenges start unverified, and only verified ones can be
+                    # published, so they are always saved as drafts.
+                    challenge.is_active = False
                     if "intended_is_active" in manifest:
                         del manifest["intended_is_active"]
                     manifest["is_active"] = challenge.is_active
@@ -494,8 +611,11 @@ class CreateChallengeView(BaseView):
             return RedirectResponse("/admin/create-challenge", status_code=302)
 
         data = {}
+        user = _request_user(request)
         with SessionLocal() as session:
             challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+            if challenge and user is not None and not _owns_draft(user, challenge):
+                return RedirectResponse("/testing", status_code=302)
             if challenge:
                 data = {
                     "slug": challenge.slug,
@@ -561,9 +681,227 @@ class CreateChallengeView(BaseView):
         )
 
 
+def _challenge_form_data(challenge: Challenge) -> dict[str, Any]:
+    """Prefill the challenge form from a stored challenge."""
+    return {
+        "slug": challenge.slug,
+        "title": challenge.title,
+        "summary": challenge.summary,
+        "description": challenge.description,
+        "track": challenge.track,
+        "difficulty": challenge.difficulty,
+        "curriculum_order": challenge.curriculum_order,
+        "category": challenge.category,
+        "prerequisites": ", ".join(challenge.prerequisites or []),
+        "expected_subckt": challenge.expected_subckt,
+        "expected_pins": ", ".join(challenge.expected_pins or []),
+        "starter_netlist": challenge.starter_netlist,
+        "judge_backend": challenge.judge_backend,
+        "submission_kind": challenge.submission_kind,
+        "score_unit": challenge.score_unit,
+        "verification_version": challenge.verification_version,
+        "lower_is_better": "on" if challenge.lower_is_better else "",
+        "is_ranked": "on" if challenge.is_ranked else "",
+    }
+
+
+class EditChallengeView(BaseView):
+    """Edit an existing challenge package with the same form used to create one."""
+
+    name = "Edit Challenge"
+    icon = "fa-solid fa-pen-to-square"
+
+    def is_visible(self, request: Request) -> bool:
+        return False
+
+    @staticmethod
+    def _editable(request: Request) -> Challenge | Response:
+        slug = request.query_params.get("slug", "")
+        user = _request_user(request)
+        with db.SessionLocal() as session:
+            challenge = session.scalar(select(Challenge).where(Challenge.slug == slug))
+        if challenge is None:
+            return HTMLResponse(
+                _page("Edit Challenge", "pen-to-square", "Challenge not found", ""),
+                status_code=404,
+            )
+        if user is None or not (user.is_admin or can_tester_edit(user, challenge)):
+            message = (
+                '<div class="alert alert-warning">Testers can only edit their own drafts, '
+                "or their own challenges after a problem was reported. "
+                '<a href="/testing">Back to the testing bench</a>.</div>'
+            )
+            return HTMLResponse(
+                _page("Edit Challenge", "pen-to-square", challenge.title, message),
+                status_code=403,
+            )
+        return challenge
+
+    @staticmethod
+    def _render(challenge: Challenge, data: Mapping[str, Any], error: str | None = None) -> str:
+        return _page(
+            "Edit Challenge",
+            "pen-to-square",
+            f"Editing {challenge.title}",
+            _render_create_challenge_form(error=error, data=data, edit_slug=challenge.slug),
+        )
+
+    @expose("/edit-challenge", methods=["GET"])
+    async def get_edit_challenge(self, request: Request) -> Response:
+        challenge = self._editable(request)
+        if isinstance(challenge, Response):
+            return challenge
+        return HTMLResponse(self._render(challenge, _challenge_form_data(challenge)))
+
+    @expose("/edit-challenge", methods=["POST"])
+    async def post_edit_challenge(self, request: Request) -> Response:
+        challenge = self._editable(request)
+        if isinstance(challenge, Response):
+            return challenge
+        form = await request.form()
+        data = {**_challenge_form_data(challenge), **{k: v for k, v in form.items()}}
+        data["slug"] = challenge.slug
+        for flag in ("lower_is_better", "is_ranked"):
+            data[flag] = "on" if form.get(flag) == "on" else ""
+
+        title = _form_str(form, "title").strip()
+        summary = _form_str(form, "summary").strip()
+        description = _form_str(form, "description").strip()
+        expected_subckt = _form_str(form, "expected_subckt").strip()
+        pins = [p.strip() for p in _form_str(form, "expected_pins").split(",") if p.strip()]
+        if not title or not summary or not description or not expected_subckt:
+            return HTMLResponse(
+                self._render(
+                    challenge,
+                    data,
+                    "Please fill in all required fields (title, summary, description, "
+                    "subcircuit name).",
+                )
+            )
+        if not pins:
+            return HTMLResponse(self._render(challenge, data, "At least one pin is required."))
+
+        root = Path((_settings or get_settings()).challenges_path)
+        package_dir = root / (challenge.fixture_path or challenge.slug)
+        manifest_path = package_dir / "challenge.json"
+        if not manifest_path.is_file():
+            return HTMLResponse(
+                self._render(challenge, data, f"Package folder for '{challenge.slug}' is missing.")
+            )
+
+        editor = _request_user(request)
+        backup_root = Path(tempfile.mkdtemp())
+        backup = backup_root / "package"
+        shutil.copytree(package_dir, backup)
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            version = int(_form_str(form, "verification_version") or challenge.verification_version)
+
+            judge_zip = form.get("judge_zip")
+            zip_bytes = await judge_zip.read() if isinstance(judge_zip, UploadFile) else b""
+            if zip_bytes:
+                staging = Path(tempfile.mkdtemp())
+                try:
+                    _extract_zip_safely(zip_bytes, staging)
+                    judge_dir = _judge_folder(staging)
+                    shutil.rmtree(package_dir / "judge", ignore_errors=True)
+                    shutil.move(str(judge_dir), str(package_dir / "judge"))
+                finally:
+                    shutil.rmtree(staging, ignore_errors=True)
+                # A new judge invalidates earlier scores and verifications.
+                version = max(version, challenge.verification_version + 1)
+
+            spec_name = manifest.get("specification_file", "specification.md")
+            (package_dir / spec_name).write_text(description, encoding="utf-8")
+            starter = _form_str(form, "starter_netlist").strip()
+            if starter:
+                starter_name = manifest.get("starter_file", "starter.cir")
+                (package_dir / starter_name).write_text(starter, encoding="utf-8")
+                manifest["starter_file"] = starter_name
+            else:
+                manifest.pop("starter_file", None)
+
+            new_assets = await _save_design_files(form, package_dir)
+            new_paths = {asset["path"] for asset in new_assets}
+            assets = [a for a in manifest.get("assets", []) if a.get("path") not in new_paths]
+
+            interface = manifest.get("interface", {})
+            subckt_key = "top_cell" if "top_cell" in interface else "subckt"
+            track = _form_str(form, "track", challenge.track)
+            category = _form_str(form, "category").strip() or track
+            prerequisites = _form_str(form, "prerequisites")
+            manifest.update(
+                {
+                    "title": title,
+                    "summary": summary,
+                    "track": track,
+                    "difficulty": _form_str(form, "difficulty", challenge.difficulty),
+                    "verification_version": version,
+                    "curriculum_order": int(_form_str(form, "curriculum_order") or 0),
+                    "prerequisites": [s.strip() for s in prerequisites.split(",") if s.strip()],
+                    "is_ranked": form.get("is_ranked") == "on",
+                    "interface": {**interface, subckt_key: expected_subckt, "pins": pins},
+                    "submission": {
+                        **manifest.get("submission", {}),
+                        "kind": _form_str(form, "submission_kind", challenge.submission_kind),
+                    },
+                    "judge_backend": _form_str(form, "judge_backend", challenge.judge_backend),
+                    "score_unit": _form_str(form, "score_unit", challenge.score_unit),
+                    "lower_is_better": form.get("lower_is_better") == "on",
+                    "assets": assets + new_assets,
+                    "is_active": challenge.is_active,
+                }
+            )
+            if category != track:
+                manifest["category"] = category
+            else:
+                manifest.pop("category", None)
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+            from .challenge_catalog import _read_package
+
+            _, values = _read_package(package_dir)
+            values.pop("is_active")
+            with db.SessionLocal() as session:
+                stored = session.get(Challenge, challenge.id)
+                assert stored is not None
+                for name, value in values.items():
+                    setattr(stored, name, value)
+                if editor is not None and not editor.is_admin:
+                    # A tester's edit has to be verified again by someone else.
+                    invalidate_verification(stored)
+                session.commit()
+        except Exception as exc:
+            shutil.rmtree(package_dir, ignore_errors=True)
+            shutil.copytree(backup, package_dir)
+            return HTMLResponse(self._render(challenge, data, f"Error saving challenge: {exc}"))
+        finally:
+            shutil.rmtree(backup_root, ignore_errors=True)
+        return RedirectResponse(f"/challenges/{challenge.slug}", status_code=302)
+
+
+def _judge_folder(extracted: Path) -> Path:
+    """Locate the judge folder inside an extracted ZIP, whatever its top-level layout."""
+    if (extracted / "judge").is_dir():
+        return extracted / "judge"
+    entries = list(extracted.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]
+    judge = extracted / "judge"
+    judge.mkdir()
+    for item in entries:
+        shutil.move(str(item), str(judge / item.name))
+    return judge
+
+
 def _render_create_challenge_form(
-    error: str | None = None, data: Mapping[str, Any] | None = None
+    error: str | None = None,
+    data: Mapping[str, Any] | None = None,
+    edit_slug: str | None = None,
 ) -> str:
+    """Render the challenge form; with *edit_slug* it edits that existing package."""
     data = data or {}
     err_html = f'<div class="alert alert-danger">{escape(error)}</div>' if error else ""
 
@@ -580,9 +918,59 @@ def _render_create_challenge_form(
             return "selected" if default else ""
         return "selected" if data.get(key) == opt else ""
 
+    def extra_option(key, known):
+        # Keep a stored value the fixed option list does not offer, so saving never changes it.
+        current = str(data.get(key, ""))
+        if not current or current in known:
+            return ""
+        return f'<option value="{escape(current)}" selected>{escape(current)}</option>'
+
+    if edit_slug:
+        action = f"/admin/edit-challenge?slug={escape(edit_slug)}"
+        slug_attrs = "readonly"
+        slug_help = "The slug and folder name cannot change once a challenge exists."
+        zip_label = "Replace Judge ZIP"
+        zip_attrs = ""
+        zip_help = (
+            "Leave empty to keep the current judge. Uploading a new ZIP replaces the whole "
+            "<code>judge/</code> folder and bumps the verification version."
+        )
+        design_help = "New files are added next to the existing ones."
+        submit_label = "Save Changes"
+    else:
+        action = "/admin/create-challenge"
+        slug_attrs = 'required placeholder="e.g. basic-current-mirror"'
+        slug_help = (
+            "Lowercase, hyphens only. Also used as the folder name under <code>challenges/</code>."
+        )
+        zip_label = 'Judge ZIP File <span class="text-danger">*</span>'
+        zip_attrs = "required"
+        zip_help = """Upload a <code>.zip</code> containing the judge folder. Expected structure:<br>
+              <code>judge/definition.yaml</code> &mdash; test definitions, measurements, scoring<br>
+              <code>judge/tests/functional.cir</code> &mdash; ngspice testbench template<br>
+              <code>judge/reference.spice</code> &mdash; reference netlist (optional)"""
+        design_help = (
+            "Upload <code>.sch</code>, <code>.sym</code>, <code>.gds</code>, or other design files "
+            'that students can download. These appear as "DESIGN FILES" on the challenge page. '
+            "Optional &mdash; leave empty if not needed."
+        )
+        submit_label = "Create Challenge"
+
+    tracks = (
+        "MOS Foundations",
+        "Biasing",
+        "Gain Stages",
+        "Differential",
+        "Amplifiers",
+        "Physical Design",
+        "Advanced",
+        "General",
+    )
+    score_units = ("points", "ps", "uA", "V/V", "Hz")
+
     return f'''
 {err_html}
-<form method="post" enctype="multipart/form-data" action="/admin/create-challenge">
+<form method="post" enctype="multipart/form-data" action="{action}">
   <div class="row g-4">
     <!-- Basic Info -->
     <div class="col-md-6">
@@ -591,8 +979,8 @@ def _render_create_challenge_form(
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label fw-bold">Slug <span class="text-danger">*</span></label>
-            <input type="text" name="slug" class="form-control" required placeholder="e.g. basic-current-mirror" value="{val("slug")}">
-            <div class="form-text">Lowercase, hyphens only. Also used as the folder name under <code>challenges/</code>.</div>
+            <input type="text" name="slug" class="form-control" {slug_attrs} value="{val("slug")}">
+            <div class="form-text">{slug_help}</div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-bold">Title <span class="text-danger">*</span></label>
@@ -628,6 +1016,7 @@ def _render_create_challenge_form(
               <option value="Physical Design" {sel("track", "Physical Design")}>Physical Design</option>
               <option value="Advanced" {sel("track", "Advanced")}>Advanced</option>
               <option value="General" {sel("track", "General")}>General</option>
+              {extra_option("track", tracks)}
             </select>
           </div>
           <div class="mb-3">
@@ -688,14 +1077,9 @@ def _render_create_challenge_form(
         <div class="card-header bg-dark text-white"><i class="fa-solid fa-file-zipper"></i> Judge Files (ZIP Upload)</div>
         <div class="card-body">
           <div class="mb-3">
-            <label class="form-label fw-bold">Judge ZIP File <span class="text-danger">*</span></label>
-            <input type="file" name="judge_zip" class="form-control" accept=".zip" required>
-            <div class="form-text">
-              Upload a <code>.zip</code> containing the judge folder. Expected structure:<br>
-              <code>judge/definition.yaml</code> &mdash; test definitions, measurements, scoring<br>
-              <code>judge/tests/functional.cir</code> &mdash; ngspice testbench template<br>
-              <code>judge/reference.spice</code> &mdash; reference netlist (optional)
-            </div>
+            <label class="form-label fw-bold">{zip_label}</label>
+            <input type="file" name="judge_zip" class="form-control" accept=".zip" {zip_attrs}>
+            <div class="form-text">{zip_help}</div>
           </div>
           <div class="alert alert-info" style="font-size:12px">
             <strong><i class="fa-solid fa-info-circle"></i> Tip:</strong>
@@ -710,6 +1094,7 @@ def _render_create_challenge_form(
               <select name="judge_backend" class="form-select">
                 <option value="characterization" {sel("judge_backend", "characterization", True)}>Characterization</option>
                 <option value="klayout" {sel("judge_backend", "klayout")}>Klayout (GDS)</option>
+                {extra_option("judge_backend", ("characterization", "klayout"))}
               </select>
             </div>
             <div class="col-6 mb-3">
@@ -717,6 +1102,7 @@ def _render_create_challenge_form(
               <select name="submission_kind" class="form-select">
                 <option value="netlist" {sel("submission_kind", "netlist", True)}>Netlist</option>
                 <option value="gds" {sel("submission_kind", "gds")}>GDS</option>
+                {extra_option("submission_kind", ("netlist", "gds"))}
               </select>
             </div>
           </div>
@@ -738,6 +1124,7 @@ def _render_create_challenge_form(
                 <option value="uA" {sel("score_unit", "uA")}>uA</option>
                 <option value="V/V" {sel("score_unit", "V/V")}>V/V</option>
                 <option value="Hz" {sel("score_unit", "Hz")}>Hz</option>
+                {extra_option("score_unit", score_units)}
               </select>
             </div>
             <div class="col-md-3 mb-3">
@@ -748,10 +1135,6 @@ def _render_create_challenge_form(
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="lower_is_better" id="checkLower" {check("lower_is_better")}>
                 <label class="form-check-label" for="checkLower">Lower score is better</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="is_active" id="checkActive" {check("is_active", True)}>
-                <label class="form-check-label" for="checkActive">Active</label>
               </div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="is_ranked" id="checkRanked" {check("is_ranked", True)}>
@@ -772,10 +1155,7 @@ def _render_create_challenge_form(
           <div class="mb-3">
             <label class="form-label fw-bold">Downloadable files for students</label>
             <input type="file" name="design_files" class="form-control" multiple accept=".sch,.sym,.gds,.spice,.cir,.lib">
-            <div class="form-text">
-              Upload <code>.sch</code>, <code>.sym</code>, <code>.gds</code>, or other design files that students can download.
-              These appear as "DESIGN FILES" on the challenge page. Optional &mdash; leave empty if not needed.
-            </div>
+            <div class="form-text">{design_help}</div>
           </div>
         </div>
       </div>
@@ -783,7 +1163,7 @@ def _render_create_challenge_form(
   </div>
 
   <div class="mt-4 text-center">
-    <button type="submit" class="btn btn-success btn-lg px-5"><i class="fa-solid fa-check"></i> Create Challenge</button>
+    <button type="submit" class="btn btn-success btn-lg px-5"><i class="fa-solid fa-check"></i> {submit_label}</button>
   </div>
 </form>
 '''
@@ -794,7 +1174,7 @@ def _render_create_challenge_form(
 # ---------------------------------------------------------------------------
 
 
-class AdminStatsAPI(BaseView):
+class AdminStatsAPI(AdminOnlyMixin, BaseView):
     name = "Stats API"
     icon = "fa-solid fa-code"
 
@@ -840,7 +1220,7 @@ class AdminStatsAPI(BaseView):
 # ---------------------------------------------------------------------------
 
 
-class ChallengeStatsView(BaseView):
+class ChallengeStatsView(AdminOnlyMixin, BaseView):
     name = "Challenge Stats"
     icon = "fa-solid fa-chart-bar"
 
@@ -962,7 +1342,7 @@ class ChallengeStatsView(BaseView):
 # ---------------------------------------------------------------------------
 
 
-class GlobalLeaderboardView(BaseView):
+class GlobalLeaderboardView(AdminOnlyMixin, BaseView):
     name = "Global Ranking"
     icon = "fa-solid fa-trophy"
 
@@ -1002,7 +1382,7 @@ class GlobalLeaderboardView(BaseView):
 # ---------------------------------------------------------------------------
 
 
-class RecentActivityView(BaseView):
+class RecentActivityView(AdminOnlyMixin, BaseView):
     name = "Recent Activity"
     icon = "fa-solid fa-clock-rotate-left"
 
@@ -1337,6 +1717,8 @@ def _render_activity_page(
 def setup_admin(app, engine, settings: Settings) -> Admin:
     import pathlib as _pathlib
 
+    global _settings
+    _settings = settings
     auth_backend = AdminAuth(settings)
     _tpl_dir = str(_pathlib.Path(__file__).resolve().parent / "templates" / "admin")
     admin = Admin(
@@ -1349,6 +1731,7 @@ def setup_admin(app, engine, settings: Settings) -> Admin:
     admin.add_view(AdminStatsAPI)
     admin.add_view(ChallengeStatsView)
     admin.add_view(CreateChallengeView)
+    admin.add_view(EditChallengeView)
     admin.add_view(GlobalLeaderboardView)
     admin.add_view(RecentActivityView)
     admin.add_view(UserAdmin)

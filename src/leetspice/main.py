@@ -14,6 +14,7 @@ from .auth import new_session, read_session, set_session_cookie
 from .challenge_catalog import seed_challenges
 from .config import Settings, get_settings
 from .schemas import HealthRead
+from .testing import router as testing_router
 from .web import router
 
 
@@ -70,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name="static",
     )
     application.include_router(router)
+    application.include_router(testing_router)
     setup_admin(application, db.engine, settings)
 
     # Configure SlowAPI rate limiting
