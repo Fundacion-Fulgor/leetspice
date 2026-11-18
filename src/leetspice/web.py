@@ -83,7 +83,7 @@ def _challenge_progress(
     if user is None:
         return {}
     completed = _completed_slugs(db, user)
-    
+
     # Combinación de develop (intentos y estado judging) y welcome-onboarding (gate)
     attempts = db.execute(
         select(Challenge.slug, Submission.status)
@@ -94,8 +94,8 @@ def _challenge_progress(
     attempted = {slug for slug, _ in attempts}
     judging = {slug for slug, state in attempts if state in ("queued", "running")}
 
-    all_slugs = {c.slug for c in challenges}
-    welcome_exists = WELCOME_SLUG in all_slugs
+    # Like _welcome_challenge(), only an active welcome challenge gates the others.
+    welcome_exists = any(c.slug == WELCOME_SLUG and c.is_active for c in challenges)
     welcome_done = WELCOME_SLUG in completed
 
     progress: dict[str, str] = {}
