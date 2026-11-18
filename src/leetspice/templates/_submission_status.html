@@ -41,6 +41,119 @@
   </dl>
   {% endif %}
   {% endif %}
+  {% set drc_violations = (submission.result_json.details.drc_violations if submission.result_json and submission.result_json.details else none) %}
+  {% if drc_violations %}
+  <section class="drc-violations" aria-label="DRC violations">
+    <h4>DRC violations</h4>
+    <table>
+      <thead><tr><th>Rule</th><th>Description</th><th>Count</th><th>Where (um)</th></tr></thead>
+      <tbody>
+        {% for violation in drc_violations %}
+        <tr>
+          <td><code>{{ violation.rule or '-' }}</code></td>
+          <td>{{ violation.description }}</td>
+          <td>{{ violation.count }}</td>
+          <td>
+            {% for box in violation.locations %}<div class="drc-box">({{ box[0] }}, {{ box[1] }}) &rarr; ({{ box[2] }}, {{ box[3] }})</div>{% endfor %}
+            {% if violation.count > violation.locations|length %}<div class="muted">+{{ violation.count - violation.locations|length }} more</div>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+  {% set lvs_report = (submission.result_json.details.lvs_report if submission.result_json and submission.result_json.details else none) %}
+  {% if lvs_report %}
+  <section class="drc-violations lvs-report" aria-label="LVS mismatch details">
+    <h4>LVS mismatch details</h4>
+    <table>
+      <thead><tr><th>Check</th><th>Layout (extracted)</th><th>Reference (expected)</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Top-level pins</td>
+          <td><code>{{ lvs_report.extracted_pins|join(', ') if lvs_report.extracted_pins else 'none' }}</code></td>
+          <td><code>{{ lvs_report.expected_pins|join(', ') if lvs_report.expected_pins else 'none' }}</code></td>
+          <td>
+            {% if lvs_report.missing_pins %}
+            <code>MISSING: {{ lvs_report.missing_pins|join(', ') }}</code>
+            {% elif lvs_report.extra_pins %}
+            <code>EXTRA: {{ lvs_report.extra_pins|join(', ') }}</code>
+            {% else %}
+            OK
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td>MOS devices</td>
+          <td><code>{{ lvs_report.extracted_devices }}</code></td>
+          <td><code>{{ lvs_report.reference_devices }}</code></td>
+          <td>{% if lvs_report.extracted_devices == lvs_report.reference_devices %}OK{% else %}<code>DIFF</code>{% endif %}</td>
+        </tr>
+        {% for row in lvs_report.summary_rows %}
+        <tr>
+          <td>Subcircuit summary</td>
+          <td>{{ row.layout }}</td>
+          <td>{{ row.reference }}</td>
+          <td>{% if row.mismatch %}<code>MISMATCH</code>{% else %}OK{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if lvs_report.property_errors %}
+    <h4 style="margin-top:16px">Device property mismatches</h4>
+    <table>
+      <thead><tr><th>Devices</th><th>Property</th><th>Layout</th><th>Reference</th><th>Detail</th></tr></thead>
+      <tbody>
+        {% for prop in lvs_report.property_errors %}
+        <tr>
+          <td><code>{{ prop.device }}</code></td>
+          <td><code>{{ prop.property }}</code></td>
+          <td>{{ prop.layout }}</td>
+          <td>{{ prop.reference }}</td>
+          <td class="muted">{{ prop.detail }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if lvs_report.pin_mismatches %}
+    <h4 style="margin-top:16px">Pin matching</h4>
+    <table>
+      <thead><tr><th>Layout pin</th><th>Reference pin</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for pin in lvs_report.pin_mismatches %}
+        <tr>
+          <td><code>{{ pin.layout_pin }}</code></td>
+          <td><code>{{ pin.reference_pin }}</code></td>
+          <td>{% if pin.mismatch %}<code>MISMATCH</code>{% else %}OK{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if lvs_report.net_mismatches %}
+    <h4 style="margin-top:16px">Net connectivity mismatches</h4>
+    <table>
+      <thead><tr><th>Layout net &amp; connections</th><th>Reference net &amp; connections</th></tr></thead>
+      <tbody>
+        {% for net in lvs_report.net_mismatches %}
+        <tr>
+          <td>
+            <div><code>{{ net.layout_net }}</code></div>
+            {% for conn in net.layout_connections %}<div class="drc-box">{{ conn }}</div>{% endfor %}
+          </td>
+          <td>
+            <div><code>{{ net.reference_net }}</code></div>
+            {% for conn in net.reference_connections %}<div class="drc-box">{{ conn }}</div>{% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+  {% endif %}
   {% if submission.error_message and (not submission.result_json or submission.error_message != submission.result_json.message) %}<div class="alert">{{ submission.error_message }}</div>{% endif %}
   {% if submission.status in ['queued', 'running'] %}<p class="muted">Judge worker is processing this design. This panel refreshes automatically.</p>{% endif %}
 </div>

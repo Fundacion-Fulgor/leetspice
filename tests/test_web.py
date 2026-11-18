@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from leetspice import db
 from leetspice.models import Challenge, Submission, User
+from leetspice.web import WELCOME_SLUG, _challenge_progress
 
 CHALLENGES = Path(__file__).parents[1] / "challenges"
 
@@ -17,6 +18,9 @@ def no_prerequisites(client):
     with db.SessionLocal() as session:
         for challenge in session.scalars(select(Challenge)):
             challenge.prerequisites = []
+            # Deactivating the welcome challenge also lifts the global onboarding gate.
+            if challenge.slug == WELCOME_SLUG:
+                challenge.is_active = False
         session.commit()
 
 
@@ -339,7 +343,7 @@ def test_demo_challenge_identifies_target_pdk(client):
     assert "IHP SG13G2" in response.text
 
 
-def test_layout_challenge_upload_and_assets(client, csrf, register):
+def test_layout_challenge_upload_and_assets(client, csrf, register, no_prerequisites):
     register()
     page = client.get("/challenges/demo-cmos-inverter-layout")
     assert page.status_code == 200
@@ -373,7 +377,7 @@ def test_layout_challenge_upload_and_assets(client, csrf, register):
         assert submission.payload_size == len(payload)
 
 
-def test_layout_challenge_rejects_wrong_or_empty_upload(client, csrf, register):
+def test_layout_challenge_rejects_wrong_or_empty_upload(client, csrf, register, no_prerequisites):
     register()
     page = client.get("/challenges/demo-cmos-inverter-layout")
     wrong = client.post(
@@ -427,3 +431,106 @@ def test_manifest_seeding_and_grouping(client):
             elif c.slug == "demo-cmos-inverter-layout":
                 assert c.difficulty == "intermediate"
                 assert "DRC" in c.description
+
+
+def test_welcome_gate_blocks_submissions_until_onboarding_is_confirmed(client, csrf, register):
+    with db.SessionLocal() as session:
+        for challenge in session.scalars(select(Challenge)):
+            challenge.prerequisites = []
+        session.commit()
+    register()
+    netlist = ".subckt inverter in out vdd vss\nR1 vdd out  10k\n.ends inverter\n"
+
+    catalog = client.get("/")
+    assert "REQUIRED FIRST STEP" in catalog.text
+
+    page = client.get("/challenges/demo-cmos-inverter")
+    blocked = client.post(
+        "/challenges/demo-cmos-inverter/submit",
+        data={"csrf_token": csrf(page), "netlist": netlist},
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 403
+    assert "Complete the welcome challenge before submitting." in blocked.text
+
+    welcome = client.get(f"/challenges/{WELCOME_SLUG}")
+    confirmed = client.post(
+        f"/challenges/{WELCOME_SLUG}/submit",
+        data={"csrf_token": csrf(welcome)},
+        follow_redirects=False,
+    )
+    assert confirmed.status_code == 303
+    assert "STEP COMPLETE" in client.get("/").text
+
+    page = client.get("/challenges/demo-cmos-inverter")
+    allowed = client.post(
+        "/challenges/demo-cmos-inverter/submit",
+        data={"csrf_token": csrf(page), "netlist": netlist},
+        follow_redirects=False,
+    )
+    assert allowed.status_code == 303
+
+
+def test_challenge_progress_separates_judging_from_attempted(client, register, no_prerequisites):
+    """A rejected-only challenge is 'attempted'; only queued/running ones are 'judging'."""
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenges = list(session.scalars(select(Challenge).order_by(Challenge.id)).all())
+        assert len(challenges) >= 4
+        solved, rejected, running, untouched = challenges[:4]
+        for challenge, state in (
+            (solved, "rejected"),
+            (solved, "accepted"),
+            (rejected, "rejected"),
+            (running, "running"),
+        ):
+            session.add(
+                Submission(user_id=user.id, challenge_id=challenge.id, netlist="x", status=state)
+            )
+        session.commit()
+
+        progress = _challenge_progress(session, user, challenges)
+
+    assert progress[solved.slug] == "completed"
+    assert progress[rejected.slug] == "attempted"
+    assert progress[running.slug] == "judging"
+    assert progress[untouched.slug] == "not_started"
+
+
+def test_submission_page_lists_drc_violations(client, register):
+    register()
+    violations = [
+        {
+            "rule": "M1.a",
+            "description": "Metal1 width < 0.16um (M1.a)",
+            "count": 12,
+            "locations": [[5.58, 0.195, 5.585, 0.355]],
+        }
+    ]
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenge = session.scalar(select(Challenge).where(Challenge.slug == "demo-cmos-inverter"))
+        submission = Submission(
+            user_id=user.id,
+            challenge_id=challenge.id,
+            netlist="x",
+            status="rejected",
+            score=0.0,
+            result_json={
+                "message": "DRC failed with 12 violation(s)",
+                "measurements": [],
+                "details": {"drc_violations": violations},
+            },
+        )
+        session.add(submission)
+        session.commit()
+        submission_id = submission.id
+
+    response = client.get(f"/submissions/{submission_id}/status")
+    assert response.status_code == 200
+    assert "DRC violations" in response.text
+    assert "<code>M1.a</code>" in response.text
+    assert "Metal1 width &lt; 0.16um (M1.a)" in response.text
+    assert "(5.58, 0.195)" in response.text
+    assert "+11 more" in response.text

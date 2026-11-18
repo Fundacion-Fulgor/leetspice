@@ -14,8 +14,8 @@ from .models import Challenge
 
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.$-]*$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-BACKENDS = {"characterization", "klayout"}
-KINDS = {"netlist", "gds"}
+BACKENDS = {"characterization", "klayout", "onboarding"}
+KINDS = {"netlist", "gds", "onboarding"}
 DIFFICULTIES = {"introductory", "intermediate", "advanced", "capstone"}
 
 
@@ -69,19 +69,6 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
             raise ValueError(f"{source}: {name} must not contain duplicates")
     if slug in prerequisites or slug in retired_slugs:
         raise ValueError(f"{source}: a challenge cannot reference its own slug")
-    interface = manifest.get("interface")
-    if not isinstance(interface, dict):
-        raise ValueError(f"{source}: interface must be an object")
-    expected_subckt = interface.get("subckt", interface.get("top_cell"))
-    pins = interface.get("pins")
-    if not isinstance(expected_subckt, str) or not IDENTIFIER.fullmatch(expected_subckt):
-        raise ValueError(f"{source}: invalid interface subckt/top_cell")
-    if (
-        not isinstance(pins, list)
-        or not pins
-        or not all(isinstance(pin, str) and IDENTIFIER.fullmatch(pin) for pin in pins)
-    ):
-        raise ValueError(f"{source}: interface pins must be non-empty identifiers")
 
     submission = manifest.get("submission", {"kind": "netlist"})
     if not isinstance(submission, dict) or submission.get("kind", "netlist") not in KINDS:
@@ -90,8 +77,30 @@ def _read_package(path: Path) -> tuple[str, dict[str, Any]]:
     backend = manifest.get("judge_backend")
     if backend not in BACKENDS:
         raise ValueError(f"{source}: judge_backend must be one of {sorted(BACKENDS)}")
-    if (kind == "gds") != (backend == "klayout"):
-        raise ValueError(f"{source}: GDS submissions require the klayout backend")
+
+    # Onboarding challenges skip all judge-file and interface validation.
+    if backend == "onboarding":
+        expected_subckt = "welcome"
+        pins: list[str] = ["ready"]
+    else:
+        interface = manifest.get("interface")
+        if not isinstance(interface, dict):
+            raise ValueError(f"{source}: interface must be an object")
+        raw_subckt = interface.get("subckt", interface.get("top_cell"))
+        raw_pins = interface.get("pins")
+        if not isinstance(raw_subckt, str) or not IDENTIFIER.fullmatch(raw_subckt):
+            raise ValueError(f"{source}: invalid interface subckt/top_cell")
+        if (
+            not isinstance(raw_pins, list)
+            or not raw_pins
+            or not all(isinstance(pin, str) and IDENTIFIER.fullmatch(pin) for pin in raw_pins)
+        ):
+            raise ValueError(f"{source}: interface pins must be non-empty identifiers")
+        expected_subckt = raw_subckt
+        pins = raw_pins
+
+        if (kind == "gds") != (backend == "klayout"):
+            raise ValueError(f"{source}: GDS submissions require the klayout backend")
 
     specification = path / _required_string(manifest, "specification_file", source)
     if not specification.is_file():

@@ -70,3 +70,91 @@ def test_magic_rejects_invalid_top(tmp_path: Path) -> None:
     pdk, gds, _ = toolchain(tmp_path)
     with pytest.raises(ValueError, match="top cell"):
         MagicRunner(pdk_root=pdk).drc(gds, "bad-name", tmp_path)
+
+
+def test_magic_drc_reports_per_rule_violations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdk, gds, _ = toolchain(tmp_path)
+    output = "\n".join(
+        [
+            "Magic noise that must be ignored",
+            "LEETSPICE_DRC_SCALE 0.005",
+            "LEETSPICE_DRC_RULE 3 Metal1 width < 0.16um (M1.a)",
+            "LEETSPICE_DRC_BOX 1116 39 1117 71",
+            "LEETSPICE_DRC_BOX 1148 -115 1149 39",
+            "LEETSPICE_DRC_RULE 1 Some rule without an id",
+            "LEETSPICE_DRC_BOX 0 0 200 400",
+            "LEETSPICE_DRC_COUNT 4",
+        ]
+    )
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, output)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    runner = MagicRunner(pdk_root=pdk)
+    assert runner.drc(gds, "top", tmp_path) == 4
+    first, second = runner.drc_violations
+    assert first["rule"] == "M1.a"
+    assert first["description"] == "Metal1 width < 0.16um (M1.a)"
+    assert first["count"] == 3  # total boxes, even though only 2 are listed
+    assert first["locations"] == [[5.58, 0.195, 5.585, 0.355], [5.74, -0.575, 5.745, 0.195]]
+    assert second["rule"] == ""
+    assert second["locations"] == [[0.0, 0.0, 1.0, 2.0]]
+
+
+def test_magic_drc_ignores_density_filler_and_sealring_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdk, gds, _ = toolchain(tmp_path)
+    output = "\n".join(
+        [
+            "LEETSPICE_DRC_SCALE 0.005",
+            "LEETSPICE_DRC_RULE 2 Metal1 width < 0.16um (M1.a)",
+            "LEETSPICE_DRC_BOX 100 100 200 200",
+            "LEETSPICE_DRC_RULE 4 Diff fill width < 1.0um (AFil.a)",
+            "LEETSPICE_DRC_BOX 300 300 400 400",
+            "LEETSPICE_DRC_RULE 3 Metal1 density < 35% (M1.k)",
+            "LEETSPICE_DRC_BOX 500 500 600 600",
+            "LEETSPICE_DRC_RULE 1 Seal Contact width != 0.16um (Seal.c1)",
+            "LEETSPICE_DRC_BOX 700 700 800 800",
+            "LEETSPICE_DRC_COUNT 10",
+        ]
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, output),
+    )
+    runner = MagicRunner(pdk_root=pdk)
+    assert runner.drc(gds, "top", tmp_path) == 2
+    assert len(runner.drc_violations) == 1
+    assert runner.drc_violations[0]["rule"] == "M1.a"
+    assert runner.drc_violations[0]["locations"] == [[0.5, 0.5, 1.0, 1.0]]
+
+
+def test_magic_drc_returns_zero_when_only_ignored_rules_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdk, gds, _ = toolchain(tmp_path)
+    output = "\n".join(
+        [
+            "LEETSPICE_DRC_SCALE 0.005",
+            "LEETSPICE_DRC_RULE 4 Diff fill spacing to Diff < 0.42um (AFil.c1 - AFil.e)",
+            "LEETSPICE_DRC_BOX 300 300 400 400",
+            "LEETSPICE_DRC_RULE 1 Sealring missing or broken (Seal.a)",
+            "LEETSPICE_DRC_BOX 700 700 800 800",
+            "LEETSPICE_DRC_COUNT 5",
+        ]
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, output),
+    )
+    runner = MagicRunner(pdk_root=pdk)
+    assert runner.drc(gds, "top", tmp_path) == 0
+    assert runner.drc_violations == []

@@ -23,7 +23,7 @@ from leetspice.testing import (
     expire_verifications,
     invalidate_verification,
 )
-from leetspice.web import _leaderboard
+from leetspice.web import WELCOME_SLUG, _challenge_progress, _leaderboard
 
 CHALLENGES = Path(__file__).parents[1] / "challenges"
 
@@ -336,6 +336,29 @@ def test_testers_get_the_draft_switch_in_the_catalog(client, register) -> None:
     assert 'id="adminToggle"' not in client.get("/").text
     _promote("designer@example.com")
     assert 'id="adminToggle"' in client.get("/").text
+
+
+def test_testers_skip_the_welcome_gate_that_still_locks_students(client, csrf, register) -> None:
+    register()
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        challenges = list(session.scalars(select(Challenge).where(Challenge.is_active.is_(True))))
+        challenge = next(c for c in challenges if c.slug != WELCOME_SLUG and c.starter_netlist)
+        slug, netlist = challenge.slug, challenge.starter_netlist
+
+        assert _challenge_progress(session, user, challenges)[slug] == "locked"
+        user.is_tester = True
+        session.commit()
+        assert _challenge_progress(session, user, challenges)[slug] != "locked"
+
+    page = client.get(f"/challenges/{slug}")
+    assert page.status_code == 200
+    response = client.post(
+        f"/challenges/{slug}/submit",
+        data={"csrf_token": csrf(page), "netlist": netlist},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
 
 
 @pytest.fixture
