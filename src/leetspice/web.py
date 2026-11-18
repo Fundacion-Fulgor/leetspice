@@ -71,7 +71,9 @@ def _challenge_progress(
 ) -> dict[str, str]:
     """Map every challenge slug to a progress token for the logged-in user.
 
-    Possible values: ``'completed'``, ``'attempted'``, ``'not_started'``,
+    Possible values: ``'completed'``, ``'judging'`` (a submission is still queued or
+    running), ``'attempted'`` (every submission finished but none was accepted),
+    ``'not_started'``,
     ``'locked'`` (prerequisites not met – takes priority).
 
     Global gate: if the welcome challenge exists and has not been completed,
@@ -81,14 +83,16 @@ def _challenge_progress(
     if user is None:
         return {}
     completed = _completed_slugs(db, user)
-    attempted = set(
-        db.scalars(
-            select(Challenge.slug)
-            .join(Submission, Submission.challenge_id == Challenge.id)
-            .where(Submission.user_id == user.id)
-            .distinct()
-        ).all()
-    )
+    
+    # Combinación de develop (intentos y estado judging) y welcome-onboarding (gate)
+    attempts = db.execute(
+        select(Challenge.slug, Submission.status)
+        .join(Submission, Submission.challenge_id == Challenge.id)
+        .where(Submission.user_id == user.id)
+        .distinct()
+    ).all()
+    attempted = {slug for slug, _ in attempts}
+    judging = {slug for slug, state in attempts if state in ("queued", "running")}
 
     all_slugs = {c.slug for c in challenges}
     welcome_exists = WELCOME_SLUG in all_slugs
@@ -101,6 +105,8 @@ def _challenge_progress(
         if slug == WELCOME_SLUG:
             if slug in completed:
                 progress[slug] = "completed"
+            elif slug in judging:
+                progress[slug] = "judging"
             elif slug in attempted:
                 progress[slug] = "attempted"
             else:
@@ -118,6 +124,8 @@ def _challenge_progress(
             progress[slug] = "locked"
         elif slug in completed:
             progress[slug] = "completed"
+        elif slug in judging:
+            progress[slug] = "judging"
         elif slug in attempted:
             progress[slug] = "attempted"
         else:
@@ -238,7 +246,6 @@ def global_board(request: Request, db: Annotated[Session, Depends(get_session)])
                 {"introductory": 1, "intermediate": 2, "advanced": 3, "capstone": 4}[
                     challenge.difficulty
                 ]
-                * 100
                 for challenge in challenges
             ),
         ),

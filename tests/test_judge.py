@@ -475,3 +475,76 @@ def test_layout_judge_surfaces_inspect_timeout(
 def test_layout_judge_maps_inspect_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = _layout_judge_with_inspect(tmp_path, monkeypatch, _InspectCrashed("boom"))
     assert result.message == "GDSII parsing failed: malformed layout or crash"
+
+
+def test_judge_result_serializes_details_only_when_present() -> None:
+    from leetspice.judge import JudgeResult
+
+    assert "details" not in JudgeResult(False, 0.0, message="x").to_dict()
+    details = {"drc_violations": [{"rule": "M1.a", "count": 1, "locations": []}]}
+    assert JudgeResult(False, 0.0, message="x", details=details).to_dict()["details"] == details
+
+
+def test_layout_judge_lvs_ignores_child_subckts_when_checking_top_pins(tmp_path: Path) -> None:
+    reference = tmp_path / "inverter.spice"
+    reference.write_text(
+        ".subckt inverter in out vdd vss\n"
+        "MNMOS out in vss vss sg13_lv_nmos W=0.74u L=0.13u\n"
+        "MPMOS out in vdd vdd sg13_lv_pmos W=1.12u L=0.13u\n"
+        ".ends inverter\n"
+    )
+    extracted = (
+        ".subckt nmos a_1 VSUB a_2 a_3\n"
+        "X0 a_2 a_1 a_3 VSUB sg13_lv_nmos w=0.74u l=0.13u\n"
+        ".ends\n"
+        ".subckt pmos a_1 w_1 a_2 a_3\n"
+        "X0 a_2 a_1 a_3 w_1 sg13_lv_pmos w=1.12u l=0.13u\n"
+        ".ends\n"
+        ".subckt inverter vdd vss out in\n"
+        "Xnmos_0 in vss out vss nmos\n"
+        "Xpmos_0 in vdd out vdd pmos\n"
+        ".ends\n"
+    )
+    netgen_out = """
+Subcircuit summary:
+Circuit 1: inverter                        |Circuit 2: inverter                        
+-------------------------------------------|-------------------------------------------
+sg13_lv_nmos (1)                           |sg13_lv_nmos (1)                           
+sg13_lv_pmos (1)                           |sg13_lv_pmos (1)                           
+Number of devices: 2                       |Number of devices: 2                       
+Number of nets: 5 **Mismatch**             |Number of nets: 4 **Mismatch**             
+---------------------------------------------------------------------------------------
+NET mismatches: Class fragments follow (with fanout counts):
+Circuit 1: inverter                        |Circuit 2: inverter                        
+
+---------------------------------------------------------------------------------------
+Net: out                                   |Net: out                                   
+  sg13_lv_pmos/(1|3) = 1                   |  sg13_lv_pmos/(1|3) = 1                   
+                                           |  sg13_lv_nmos/(1|3) = 1                   
+                                           |                                           
+Net: out_n                                 |(no matching net)                          
+  sg13_lv_nmos/(1|3) = 1                   |                                           
+---------------------------------------------------------------------------------------
+Final result: Netlists do not match.
+"""
+    msg = LayoutJudge._lvs_failure(
+        extracted,
+        reference,
+        ["in", "out", "vdd", "vss"],
+        expected_top="inverter",
+        lvs_output=netgen_out,
+    )
+    assert msg == "LVS mismatch; connectivity mismatch on net(s): out, out_n"
+    report = LayoutJudge._build_lvs_report(
+        extracted,
+        reference,
+        ["in", "out", "vdd", "vss"],
+        expected_top="inverter",
+        lvs_output=netgen_out,
+    )
+    assert report["missing_pins"] == []
+    assert report["net_mismatches"][0]["layout_connections"] == ["sg13_lv_pmos/(drain|source) = 1"]
+    assert report["net_mismatches"][0]["reference_connections"] == [
+        "sg13_lv_pmos/(drain|source) = 1",
+        "sg13_lv_nmos/(drain|source) = 1",
+    ]
