@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
@@ -41,6 +41,9 @@ templates = Jinja2Templates(
     directory=str(__import__("pathlib").Path(__file__).parent / "templates")
 )
 
+# The onboarding challenge that gates access to all other challenges.
+WELCOME_SLUG = "welcome-to-leetspice"
+
 
 def _current_user(request: Request, db: Session) -> User | None:
     user_id = request.state.session.get("user_id")
@@ -72,10 +75,16 @@ def _challenge_progress(
     running), ``'attempted'`` (every submission finished but none was accepted),
     ``'not_started'``,
     ``'locked'`` (prerequisites not met – takes priority).
+
+    Global gate: if the welcome challenge exists and has not been completed,
+    every other challenge is reported as ``'locked'`` regardless of its own
+    prerequisites.
     """
     if user is None:
         return {}
     completed = _completed_slugs(db, user)
+
+    # Combinación de develop (intentos y estado judging) y welcome-onboarding (gate)
     attempts = db.execute(
         select(Challenge.slug, Submission.status)
         .join(Submission, Submission.challenge_id == Challenge.id)
@@ -84,19 +93,44 @@ def _challenge_progress(
     ).all()
     attempted = {slug for slug, _ in attempts}
     judging = {slug for slug, state in attempts if state in ("queued", "running")}
+
+    # Like _welcome_challenge(), only an active welcome challenge gates the others.
+    welcome_exists = any(c.slug == WELCOME_SLUG and c.is_active for c in challenges)
+    welcome_done = WELCOME_SLUG in completed
+
     progress: dict[str, str] = {}
     for challenge in challenges:
+        slug = challenge.slug
+        # The welcome challenge itself is never locked by the global gate.
+        if slug == WELCOME_SLUG:
+            if slug in completed:
+                progress[slug] = "completed"
+            elif slug in judging:
+                progress[slug] = "judging"
+            elif slug in attempted:
+                progress[slug] = "attempted"
+            else:
+                progress[slug] = "not_started"
+            continue
+
+        # Apply the global welcome gate first.
+        if welcome_exists and not welcome_done:
+            progress[slug] = "locked"
+            continue
+
+        # Normal prerequisite logic.
         prereqs = challenge.prerequisites or []
-        if prereqs and not all(slug in completed for slug in prereqs):
-            progress[challenge.slug] = "locked"
-        elif challenge.slug in completed:
-            progress[challenge.slug] = "completed"
-        elif challenge.slug in judging:
-            progress[challenge.slug] = "judging"
-        elif challenge.slug in attempted:
-            progress[challenge.slug] = "attempted"
+        if prereqs and not all(p in completed for p in prereqs):
+            progress[slug] = "locked"
+        elif slug in completed:
+            progress[slug] = "completed"
+        elif slug in judging:
+            progress[slug] = "judging"
+        elif slug in attempted:
+            progress[slug] = "attempted"
         else:
-            progress[challenge.slug] = "not_started"
+            progress[slug] = "not_started"
+
     return progress
 
 
@@ -146,6 +180,13 @@ def _leaderboard(db: Session, challenge: Challenge) -> Sequence[tuple[User, floa
     ).all()
 
 
+def _welcome_challenge(db: Session) -> Challenge | None:
+    """Return the welcome challenge if it exists and is active."""
+    return db.scalar(
+        select(Challenge).where(Challenge.slug == WELCOME_SLUG, Challenge.is_active.is_(True))
+    )
+
+
 @router.get("/", response_class=HTMLResponse)
 def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
     user = _current_user(request, db)
@@ -158,16 +199,22 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
     challenges = db.scalars(query).all()
 
     progress = _challenge_progress(db, user, challenges)
-    # Group challenges by track
+
+    # Separate the welcome challenge from the track grid.
+    welcome = next((c for c in challenges if c.slug == WELCOME_SLUG), None)
+    track_challenges = [c for c in challenges if c.slug != WELCOME_SLUG]
+
     tracks: dict[str, list[Challenge]] = {}
-    for c in challenges:
+    for c in track_challenges:
         tracks.setdefault(c.track, []).append(c)
+
     return templates.TemplateResponse(
         request,
         "catalog.html",
         _context(
             request,
             db,
+            welcome=welcome,
             tracks=tracks,
             challenges_count=len(challenges),
             progress=progress,
@@ -199,7 +246,6 @@ def global_board(request: Request, db: Annotated[Session, Depends(get_session)])
                 {"introductory": 1, "intermediate": 2, "advanced": 3, "capstone": 4}[
                     challenge.difficulty
                 ]
-                * 100
                 for challenge in challenges
             ),
         ),
@@ -472,6 +518,28 @@ def challenge_detail(
         raise HTTPException(status_code=404)
 
     completed = _completed_slugs(db, user)
+
+    # Global welcome gate: if user hasn't completed the welcome challenge,
+    # show all other challenges as locked with the welcome as the missing prereq.
+    if user and not is_admin and challenge.slug != WELCOME_SLUG:
+        welcome = _welcome_challenge(db)
+        if welcome and WELCOME_SLUG not in completed:
+            return templates.TemplateResponse(
+                request,
+                "challenge.html",
+                _context(
+                    request,
+                    db,
+                    challenge=challenge,
+                    description_html=Markup(markdown.render(challenge.description)),
+                    leaders=_leaderboard(db, challenge),
+                    prerequisites_met=False,
+                    missing_prerequisites=[welcome],
+                    is_draft=not challenge.is_active,
+                    is_preview=False,
+                ),
+            )
+
     prereqs = challenge.prerequisites or []
     prerequisites_met = all(prereq_slug in completed for prereq_slug in prereqs)
     missing = _missing_prerequisites(db, challenge, completed) if not prerequisites_met else []
@@ -554,9 +622,48 @@ async def submit(
         )
     if challenge is None:
         raise HTTPException(status_code=404)
+
     completed = _completed_slugs(db, user)
+
+    # Onboarding challenges are accepted immediately — no worker required.
+    if challenge.submission_kind == "onboarding":
+        sentinel = sha256(f"onboarding:{user.id}:{challenge.id}".encode()).hexdigest()
+        submission = Submission(
+            user_id=user.id,
+            challenge_id=challenge.id,
+            verification_version=challenge.verification_version,
+            submission_kind="onboarding",
+            netlist="",
+            payload_size=0,
+            payload_sha256=sentinel,
+            status="accepted",
+            accepted_at=datetime.now(UTC),
+        )
+        db.add(submission)
+        db.commit()
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+    # Global welcome gate: block normal submissions until welcome is done.
+    if not is_admin and challenge.slug != WELCOME_SLUG:
+        welcome = _welcome_challenge(db)
+        if welcome and WELCOME_SLUG not in completed:
+            return templates.TemplateResponse(
+                request,
+                "challenge.html",
+                _context(
+                    request,
+                    db,
+                    challenge=challenge,
+                    leaders=_leaderboard(db, challenge),
+                    prerequisites_met=False,
+                    missing_prerequisites=[welcome],
+                    error="Complete the welcome challenge before submitting.",
+                ),
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
     prereqs = challenge.prerequisites or []
-    if prereqs and not all(slug in completed for slug in prereqs):
+    if prereqs and not all(s in completed for s in prereqs):
         missing = _missing_prerequisites(db, challenge, completed)
         return templates.TemplateResponse(
             request,
