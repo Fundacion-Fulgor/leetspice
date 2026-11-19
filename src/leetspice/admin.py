@@ -2,6 +2,7 @@
 
 import io
 import json
+import logging
 import shutil
 import tempfile
 import zipfile
@@ -31,6 +32,8 @@ from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
 from .models import Challenge, Submission, User
 from .testing import can_tester_edit, effective_status, invalidate_verification
+
+LOGGER = logging.getLogger("leetspice.admin")
 
 
 def _form_str(form: FormData, key: str, default: str = "") -> str:
@@ -873,10 +876,20 @@ class EditChallengeView(BaseView):
                     # A tester's edit has to be verified again by someone else.
                     invalidate_verification(stored)
                 session.commit()
-        except Exception as exc:
+        except Exception:
+            # The exception can carry server paths and internals: log it, show a generic note.
+            LOGGER.exception("Could not save challenge %s; package restored", challenge.slug)
             shutil.rmtree(package_dir, ignore_errors=True)
             shutil.copytree(backup, package_dir)
-            return HTMLResponse(self._render(challenge, data, f"Error saving challenge: {exc}"))
+            return HTMLResponse(
+                self._render(
+                    challenge,
+                    data,
+                    "The challenge could not be saved, so no changes were applied. Check the "
+                    "judge ZIP and the form fields and try again; the details are in the "
+                    "server log.",
+                )
+            )
         finally:
             shutil.rmtree(backup_root, ignore_errors=True)
         return RedirectResponse(f"/challenges/{challenge.slug}", status_code=302)

@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import shutil
 import zipfile
 from datetime import UTC, datetime, timedelta
@@ -527,19 +528,24 @@ def test_replacing_the_judge_bumps_the_verification_version(editable_client, csr
         assert challenge.verification_version == int(form["verification_version"]) + 1
 
 
-def test_broken_judge_upload_keeps_the_previous_package(editable_client, csrf) -> None:
+def test_broken_judge_upload_keeps_the_previous_package(editable_client, csrf, caplog) -> None:
     test_client, challenges = editable_client
     slug = "mos-gmid"
     _login_tester_owning(test_client, csrf, slug)
     before = (challenges / slug / "challenge.json").read_text(encoding="utf-8")
     definition = sorted((challenges / slug / "judge").rglob("*.yaml"))
 
-    response = test_client.post(
-        f"/admin/edit-challenge?slug={slug}",
-        data=_edit_form(slug),
-        files={"judge_zip": ("judge.zip", _judge_zip({"judge/readme.txt": b"x"}), "x/zip")},
-    )
-    assert "Error saving challenge" in response.text
+    with caplog.at_level(logging.ERROR, logger="leetspice.admin"):
+        response = test_client.post(
+            f"/admin/edit-challenge?slug={slug}",
+            data=_edit_form(slug),
+            files={"judge_zip": ("judge.zip", _judge_zip({"judge/readme.txt": b"x"}), "x/zip")},
+        )
+    # Generic message for the user; the internal error only goes to the log.
+    assert "The challenge could not be saved" in response.text
+    assert "definition is missing" not in response.text
+    assert str(challenges) not in response.text
+    assert "definition is missing" in caplog.text
     assert (challenges / slug / "challenge.json").read_text(encoding="utf-8") == before
     assert sorted((challenges / slug / "judge").rglob("*.yaml")) == definition
 
