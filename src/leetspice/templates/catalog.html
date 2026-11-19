@@ -41,7 +41,7 @@
 
 <section class="section-head"><h2>Open benches</h2><span>{{ challenges_count }} {% if show_all %}TOTAL{% else %}ACTIVE{% endif %}</span></section>
 
-{% if current_user and current_user.is_admin %}
+{% if current_user and (current_user.is_admin or current_user.is_tester) %}
 <div style="display:flex;align-items:center;gap:10px;margin:-0.5rem 0 1.5rem;padding:0.75rem 1rem;background:#1e2422;border:1px solid #2e3532;border-radius:6px;">
   <span style="font:500 12px/1 monospace;letter-spacing:1px;text-transform:uppercase;color:#a0a8a4;">Active only</span>
   <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;">

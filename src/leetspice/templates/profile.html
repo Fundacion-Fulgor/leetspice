@@ -7,7 +7,7 @@
     <h2>Account settings</h2>
     <button class="primary" onclick="document.getElementById('name-form').hidden=false; this.hidden=true">Change display name</button>
     <button class="primary" onclick="document.getElementById('password-form').hidden=false; this.hidden=true">Change password</button>
-    {% if current_user.is_admin %}
+    {% if current_user.is_admin or current_user.is_tester %}
     <a href="/admin" class="primary admin-link">Admin panel &#x2192;</a>
     {% endif %}
   </div>

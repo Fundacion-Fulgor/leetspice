@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="LeetSpice analog circuit design challenges">
   <title>{% block title %}LeetSpice{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=11">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=12">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
 <body>
@@ -25,6 +25,7 @@
         <a href="/dashboard">Dashboard</a>
         <a href="/profile">Profile</a>
         <a href="/submissions">My submissions</a>
+        {% if current_user.is_tester or current_user.is_admin %}<a href="/testing">Testing</a>{% endif %}
         <span class="identity">{{ current_user.display_name }}</span>
         <form method="post" action="/logout" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
