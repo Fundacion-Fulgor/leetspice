@@ -14,7 +14,7 @@
   {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
   <div class="testing-table" role="table" aria-label="Challenge verification status">
     <div class="testing-row testing-head" role="row"><span role="columnheader">Challenge</span><span role="columnheader">Status</span><span role="columnheader">Your last run</span><span role="columnheader">Actions</span></div>
-    {% for row in rows %}{% set challenge = row.challenge %}{% set state = challenge.verification_status %}{% set own = challenge.created_by_id == current_user.id and not current_user.is_admin %}
+    {% for row in rows %}{% set challenge = row.challenge %}{% set state = row.state %}{% set own = challenge.created_by_id == current_user.id and not current_user.is_admin %}
     <div class="testing-row" role="row">
       <div role="cell">
         <a class="testing-challenge" href="/challenges/{{ challenge.slug }}">{{ challenge.title }}</a>

@@ -46,24 +46,33 @@ def _clear_claim(challenge: Challenge) -> None:
     challenge.claimed_at = None
 
 
-def expire_verifications(db: Session, now: datetime | None = None) -> None:
-    """Return stale claims and outdated verifications to ``unverified``.
+def effective_status(challenge: Challenge, now: datetime | None = None) -> str:
+    """The verification status as it stands now, without writing anything.
 
     A claim lasts ``CLAIM_DURATION``; a verification only holds for the judge version it
-    was made against, so bumping ``verification_version`` invalidates it.
+    was made against, so bumping ``verification_version`` invalidates it. Both read as
+    ``unverified`` here until ``expire_verifications`` persists them.
+    """
+    state = challenge.verification_status
+    expires = claim_expires_at(challenge)
+    if expires is not None and expires <= (now or datetime.now(UTC)):
+        return "unverified"
+    if state == "verified" and challenge.verified_version != challenge.verification_version:
+        return "unverified"
+    return state
+
+
+def expire_verifications(db: Session, now: datetime | None = None) -> None:
+    """Persist stale claims and outdated verifications as ``unverified``.
+
+    Only the workflow actions call this; read-only pages use ``effective_status``.
     """
     now = now or datetime.now(UTC)
     changed = False
     for challenge in db.scalars(
         select(Challenge).where(Challenge.verification_status.in_(("testing", "verified")))
     ):
-        expires = claim_expires_at(challenge)
-        stale_claim = expires is not None and expires <= now
-        outdated = (
-            challenge.verification_status == "verified"
-            and challenge.verified_version != challenge.verification_version
-        )
-        if stale_claim or outdated:
+        if effective_status(challenge, now) == "unverified":
             challenge.verification_status = "unverified"
             _clear_claim(challenge)
             changed = True
@@ -180,7 +189,7 @@ def _bench_user(request: Request, db: Session) -> User:
 
 def bench_order(challenge: Challenge) -> tuple[int, int, int]:
     """Sort key: published-but-unverified first, then unverified drafts, verified last."""
-    if challenge.verification_status == "verified":
+    if effective_status(challenge) == "verified":
         group = 2
     elif challenge.is_active:
         group = 0
@@ -196,7 +205,8 @@ def _render_bench(
     error: str | None = None,
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
-    expire_verifications(db)
+    # Read-only: stale claims and outdated verifications are shown through
+    # effective_status() and only persisted by the POST actions.
     search = request.query_params.get("q", "").strip()[:100]
     query = select(Challenge).options(
         selectinload(Challenge.claimed_by),
@@ -213,16 +223,19 @@ def _render_bench(
         .order_by(Submission.created_at.desc(), Submission.id.desc())
     ):
         latest.setdefault(submission.challenge_id, submission)
-    rows = [
-        {
-            "challenge": challenge,
-            "status_label": STATUS_LABELS.get(challenge.verification_status, "Unknown"),
-            "expires_at": claim_expires_at(challenge),
-            "latest": latest.get(challenge.id),
-            "can_edit": user.is_admin or can_tester_edit(user, challenge),
-        }
-        for challenge in challenges
-    ]
+    rows = []
+    for challenge in challenges:
+        state = effective_status(challenge)
+        rows.append(
+            {
+                "challenge": challenge,
+                "state": state,
+                "status_label": STATUS_LABELS.get(state, "Unknown"),
+                "expires_at": claim_expires_at(challenge) if state == "testing" else None,
+                "latest": latest.get(challenge.id),
+                "can_edit": user.is_admin or can_tester_edit(user, challenge),
+            }
+        )
     return templates.TemplateResponse(
         request,
         "testing.html",

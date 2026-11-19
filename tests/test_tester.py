@@ -20,6 +20,7 @@ from leetspice.testing import (
     apply_action,
     bench_order,
     can_tester_edit,
+    effective_status,
     expire_verifications,
     invalidate_verification,
 )
@@ -268,6 +269,34 @@ def test_claims_expire_after_ten_days(client) -> None:
         expire_verifications(session)
         assert challenge.verification_status == "unverified"
         assert challenge.claimed_by_id is None
+
+
+def test_bench_page_shows_expired_claims_without_writing(client, csrf, tester) -> None:
+    other = _make_user("other@example.com", tester=True)
+    with db.SessionLocal() as session:
+        challenge = session.scalar(select(Challenge).order_by(Challenge.id))
+        challenge.verification_status = "testing"
+        challenge.claimed_by_id = other
+        challenge.claimed_at = datetime.now(UTC) - timedelta(days=11)
+        session.commit()
+        slug = challenge.slug
+    assert effective_status(challenge) == "unverified"
+
+    bench = client.get("/testing")
+    assert f"/testing/{slug}/claim" in bench.text
+    with db.SessionLocal() as session:
+        stored = session.scalar(select(Challenge).where(Challenge.slug == slug))
+        assert stored.verification_status == "testing"
+        assert stored.claimed_by_id == other
+
+    claimed = client.post(
+        f"/testing/{slug}/claim", data={"csrf_token": csrf(bench)}, follow_redirects=False
+    )
+    assert claimed.status_code == 303
+    with db.SessionLocal() as session:
+        stored = session.scalar(select(Challenge).where(Challenge.slug == slug))
+        assert stored.verification_status == "testing"
+        assert stored.claimed_by_id != other
 
 
 def test_verification_resets_when_the_judge_version_changes(client) -> None:

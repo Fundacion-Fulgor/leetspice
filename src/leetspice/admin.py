@@ -30,7 +30,7 @@ from .config import Settings, get_settings
 from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
 from .models import Challenge, Submission, User
-from .testing import can_tester_edit, invalidate_verification
+from .testing import can_tester_edit, effective_status, invalidate_verification
 
 
 def _form_str(form: FormData, key: str, default: str = "") -> str:
@@ -288,7 +288,7 @@ class ChallengeAdmin(ModelView, model=Challenge):
                 data.pop(field, None)
             return
         publishing = bool(data.get("is_active")) and not model.is_active
-        status = data.get("verification_status", model.verification_status)
+        status = data.get("verification_status", effective_status(model))
         if publishing and status != "verified":
             raise ValueError("Only verified challenges can be published.")
 
