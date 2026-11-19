@@ -1,12 +1,13 @@
 """Testing bench: testers try challenges and track their verification status."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any, cast
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import require_csrf
@@ -140,9 +141,19 @@ def apply_action(
     if action == "claim":
         if state != "unverified":
             raise VerificationError("Only unverified challenges can be claimed.")
-        challenge.verification_status = "testing"
-        challenge.claimed_by_id = user.id
-        challenge.claimed_at = now
+        # Conditional update: when two testers claim at once, only the first one to
+        # write still finds the row unverified; the other one updates nothing.
+        claimed = db.execute(
+            update(Challenge)
+            .where(Challenge.id == challenge.id, Challenge.verification_status == "unverified")
+            .values(verification_status="testing", claimed_by_id=user.id, claimed_at=now)
+        )
+        if cast(CursorResult[Any], claimed).rowcount != 1:
+            db.rollback()
+            raise VerificationError("Another tester claimed this challenge first.")
+        db.commit()
+        db.refresh(challenge)
+        return
     elif action == "release":
         if state != "testing" or not (is_claimer or user.is_admin):
             raise VerificationError("Only the tester who claimed it can release it.")

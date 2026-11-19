@@ -271,6 +271,25 @@ def test_claims_expire_after_ten_days(client) -> None:
         assert challenge.claimed_by_id is None
 
 
+def test_concurrent_claims_only_let_the_first_one_win(client) -> None:
+    first = _make_user("first@example.com", tester=True)
+    second = _make_user("second@example.com", tester=True)
+    with db.SessionLocal() as one, db.SessionLocal() as two:
+        # Both testers loaded the challenge while it was still unverified.
+        mine = one.scalar(select(Challenge).order_by(Challenge.id))
+        theirs = two.get(Challenge, mine.id)
+        assert mine.verification_status == theirs.verification_status == "unverified"
+
+        apply_action(one, one.get(User, first), mine, "claim")
+        with pytest.raises(VerificationError, match="claimed this challenge first"):
+            apply_action(two, two.get(User, second), theirs, "claim")
+
+    with db.SessionLocal() as session:
+        stored = session.get(Challenge, mine.id)
+        assert stored.verification_status == "testing"
+        assert stored.claimed_by_id == first
+
+
 def test_bench_page_shows_expired_claims_without_writing(client, csrf, tester) -> None:
     other = _make_user("other@example.com", tester=True)
     with db.SessionLocal() as session:
