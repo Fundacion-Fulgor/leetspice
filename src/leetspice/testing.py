@@ -210,8 +210,9 @@ class ActivitySummary:
 
 
 def collect_tester_activity(db: Session, now: datetime | None = None) -> list[ActivitySummary]:
-    """Activity of every tester, plus any admin who verified or created challenges.
+    """Activity of every tester and every admin, since admins can do a tester's work too.
 
+    Anyone else with recorded activity (e.g. a former tester) is listed as well.
     "Verified" counts the challenges whose current, still-valid verification is theirs:
     a verification that was reported, invalidated or outdated by a new judge version
     no longer counts.
@@ -231,7 +232,11 @@ def collect_tester_activity(db: Session, now: datetime | None = None) -> list[Ac
             created.setdefault(challenge.created_by_id, []).append(challenge)
 
     active_ids = set(verified) | set(created) | set(testing)
-    users = db.scalars(select(User).where((User.is_tester.is_(True)) | (User.id.in_(active_ids))))
+    users = db.scalars(
+        select(User).where(
+            User.is_tester.is_(True) | User.is_admin.is_(True) | User.id.in_(active_ids)
+        )
+    )
     rows = [
         ActivitySummary(
             user=user,

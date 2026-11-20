@@ -1415,7 +1415,7 @@ class TesterActivityView(AdminOnlyMixin, BaseView):
             _page(
                 "Tester Activity",
                 "user-check",
-                "Challenges each tester has verified, created and is testing now",
+                "Challenges each tester and admin has verified, created and is testing now",
                 body,
             )
         )
@@ -1443,8 +1443,9 @@ def _render_tester_activity(rows: Sequence[ActivitySummary]) -> str:
     created_total = sum(len(row.created) for row in rows)
     testing_total = sum(len(row.testing) for row in rows)
     testers = sum(1 for row in rows if row.user.is_tester)
+    admins = sum(1 for row in rows if row.user.is_admin)
     cards = f"""<div class="row g-3 mb-4">
-    <div class="col-md-3"><div class="stat-card"><div class="number">{testers}</div><div class="label">Testers</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{testers} / {admins}</div><div class="label">Testers / Admins</div></div></div>
     <div class="col-md-3"><div class="stat-card"><div class="number">{verified_total}</div><div class="label">Verified Challenges</div></div></div>
     <div class="col-md-3"><div class="stat-card"><div class="number">{created_total}</div><div class="label">Created Challenges</div></div></div>
     <div class="col-md-3"><div class="stat-card"><div class="number">{testing_total}</div><div class="label">Being Tested Now</div></div></div>
@@ -1452,13 +1453,18 @@ def _render_tester_activity(rows: Sequence[ActivitySummary]) -> str:
 
     body = ""
     for row in rows:
-        role = "TESTER" if row.user.is_tester else "ADMIN"
-        badge = (
-            '<span style="background:#dbff3d;color:#111815;padding:2px 6px;border-radius:3px;'
-            f'font-size:10px;font-weight:700">{role}</span>'
-        )
+        badges = []
+        for role, enabled, colors in (
+            ("ADMIN", row.user.is_admin, "background:#d56a3a;color:#fff"),
+            ("TESTER", row.user.is_tester, "background:#dbff3d;color:#111815"),
+        ):
+            if enabled:
+                badges.append(
+                    f'<span style="{colors};padding:2px 6px;border-radius:3px;'
+                    f'font-size:10px;font-weight:700">{role}</span>'
+                )
         body += f"""<tr>
-          <td><strong>{escape(row.user.display_name)}</strong> {badge}<br><small style="color:#888">{escape(row.user.email)}</small></td>
+          <td><strong>{escape(row.user.display_name)}</strong> {" ".join(badges)}<br><small style="color:#888">{escape(row.user.email)}</small></td>
           <td style="text-align:center"><strong style="font-size:18px">{len(row.verified)}</strong></td>
           <td>{_challenge_chips(row.verified)}</td>
           <td style="text-align:center"><strong style="font-size:18px">{len(row.created)}</strong></td>
@@ -1468,13 +1474,13 @@ def _render_tester_activity(rows: Sequence[ActivitySummary]) -> str:
 
     empty = (
         '<tr><td colspan="6" style="text-align:center;color:#888;padding:40px">'
-        "No testers yet. Mark a user as tester from the Users view.</td></tr>"
+        "No testers or admins yet. Mark a user as tester from the Users view.</td></tr>"
     )
     table = f"""<div class="data-table">
-    <div class="section-title"><h5><i class="fa-solid fa-user-check"></i> Activity by tester</h5></div>
+    <div class="section-title"><h5><i class="fa-solid fa-user-check"></i> Activity by tester and admin, most verified first</h5></div>
     <div class="table-responsive"><table class="table table-sm mb-0">
       <thead><tr>
-        <th>Tester</th><th style="text-align:center">Verified</th><th>Verified challenges</th>
+        <th>User</th><th style="text-align:center">Verified</th><th>Verified challenges</th>
         <th style="text-align:center">Created</th><th>Created challenges</th><th>Testing now</th>
       </tr></thead>
       <tbody>{body or empty}</tbody>
