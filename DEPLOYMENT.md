@@ -72,6 +72,18 @@ docker compose -f compose.prod.yaml exec db \
   pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup_$(date +%F).sql
 ```
 
+## Single sign-on (Authentik OIDC)
+
+LeetSpice can offer "Sign in with Fundación Fulgor" through Authentik. Local email/password accounts keep working.
+
+1. In Authentik create an **OAuth2/OpenID Provider** (confidential client) and an Application for it.
+2. Set the redirect URI (strict) to `https://<domain>/auth/oidc/callback`.
+3. Select the scopes `openid`, `email` and `profile`. The `groups` claim is included by Authentik's default profile scope.
+4. Set in `.env`: `OIDC_ISSUER` (e.g. `https://auth.example.org/application/o/<slug>/`), `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`.
+5. Optionally set `OIDC_ADMIN_GROUP` to an Authentik group name. Admin rights are synced from the `groups` claim on every OIDC login: members are granted admin and non-members lose it. If empty, OIDC never changes admin rights.
+
+Users are matched by the OIDC subject; the first login of an existing local account with the same email links it. New users are created automatically and cannot use a local password.
+
 ## Security Notes
 
 - **No exposed database port**: PostgreSQL is only reachable by web and worker containers.
