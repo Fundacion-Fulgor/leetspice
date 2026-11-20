@@ -31,7 +31,14 @@ from .config import Settings, get_settings
 from .db import SessionLocal
 from .leaderboards import DIFFICULTY_WEIGHTS, global_leaderboard
 from .models import Challenge, Submission, User
-from .testing import can_tester_edit, effective_status, invalidate_verification
+from .testing import (
+    STATUS_LABELS,
+    ActivitySummary,
+    can_tester_edit,
+    collect_tester_activity,
+    effective_status,
+    invalidate_verification,
+)
 
 LOGGER = logging.getLogger("leetspice.admin")
 
@@ -1391,6 +1398,100 @@ class GlobalLeaderboardView(AdminOnlyMixin, BaseView):
 
 
 # ---------------------------------------------------------------------------
+# Tester Activity view
+# ---------------------------------------------------------------------------
+
+
+class TesterActivityView(AdminOnlyMixin, BaseView):
+    name = "Tester Activity"
+    icon = "fa-solid fa-user-check"
+
+    @expose("/tester-activity", methods=["GET"])
+    async def tester_activity(self, request: Request) -> Response:
+        with db.SessionLocal() as session:
+            rows = collect_tester_activity(session)
+            body = _render_tester_activity(rows)
+        return HTMLResponse(
+            _page(
+                "Tester Activity",
+                "user-check",
+                "Challenges each tester and admin has verified, created and is testing now",
+                body,
+            )
+        )
+
+
+def _challenge_chips(challenges: Sequence[Challenge], show_status: bool = False) -> str:
+    if not challenges:
+        return '<span style="color:#ddd">—</span>'
+    chips = []
+    for challenge in challenges:
+        state = ""
+        if show_status:
+            label = STATUS_LABELS.get(effective_status(challenge), "Unknown")
+            draft = "" if challenge.is_active else " · draft"
+            state = f' <small style="color:#888">({escape(label)}{draft})</small>'
+        chips.append(
+            f'<div><a href="/challenges/{escape(challenge.slug)}">{escape(challenge.title)}</a>'
+            f"{state}</div>"
+        )
+    return "".join(chips)
+
+
+def _render_tester_activity(rows: Sequence[ActivitySummary]) -> str:
+    verified_total = sum(len(row.verified) for row in rows)
+    created_total = sum(len(row.created) for row in rows)
+    testing_total = sum(len(row.testing) for row in rows)
+    testers = sum(1 for row in rows if row.user.is_tester)
+    admins = sum(1 for row in rows if row.user.is_admin)
+    cards = f"""<div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="stat-card"><div class="number">{testers} / {admins}</div><div class="label">Testers / Admins</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{verified_total}</div><div class="label">Verified Challenges</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{created_total}</div><div class="label">Created Challenges</div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="number">{testing_total}</div><div class="label">Being Tested Now</div></div></div>
+  </div>"""
+
+    body = ""
+    for row in rows:
+        badges = []
+        for role, enabled, colors in (
+            ("ADMIN", row.user.is_admin, "background:#d56a3a;color:#fff"),
+            ("TESTER", row.user.is_tester, "background:#dbff3d;color:#111815"),
+        ):
+            if enabled:
+                badges.append(
+                    f'<span style="{colors};padding:2px 6px;border-radius:3px;'
+                    f'font-size:10px;font-weight:700">{role}</span>'
+                )
+        body += f"""<tr>
+          <td><strong>{escape(row.user.display_name)}</strong> {" ".join(badges)}<br><small style="color:#888">{escape(row.user.email)}</small></td>
+          <td style="text-align:center"><strong style="font-size:18px">{len(row.verified)}</strong></td>
+          <td>{_challenge_chips(row.verified)}</td>
+          <td style="text-align:center"><strong style="font-size:18px">{len(row.created)}</strong></td>
+          <td>{_challenge_chips(row.created, show_status=True)}</td>
+          <td>{_challenge_chips(row.testing)}</td>
+        </tr>"""
+
+    empty = (
+        '<tr><td colspan="6" style="text-align:center;color:#888;padding:40px">'
+        "No testers or admins yet. Mark a user as tester from the Users view.</td></tr>"
+    )
+    table = f"""<div class="data-table">
+    <div class="section-title"><h5><i class="fa-solid fa-user-check"></i> Activity by tester and admin, most verified first</h5></div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr>
+        <th>User</th><th style="text-align:center">Verified</th><th>Verified challenges</th>
+        <th style="text-align:center">Created</th><th>Created challenges</th><th>Testing now</th>
+      </tr></thead>
+      <tbody>{body or empty}</tbody>
+    </table></div>
+  </div>
+  <p style="color:#888;font-size:12px;margin-top:12px">Verified counts only verifications that
+  are still valid: reported ones, and ones made on an older judge version, are left out.</p>"""
+    return cards + table
+
+
+# ---------------------------------------------------------------------------
 # Recent Activity view
 # ---------------------------------------------------------------------------
 
@@ -1746,6 +1847,7 @@ def setup_admin(app, engine, settings: Settings) -> Admin:
     admin.add_view(CreateChallengeView)
     admin.add_view(EditChallengeView)
     admin.add_view(GlobalLeaderboardView)
+    admin.add_view(TesterActivityView)
     admin.add_view(RecentActivityView)
     admin.add_view(UserAdmin)
     admin.add_view(ChallengeAdmin)
