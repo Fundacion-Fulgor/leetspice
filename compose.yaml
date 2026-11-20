@@ -29,6 +29,10 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leetspice}:${POSTGRES_PASSWORD:-leetspice-local-only}@db:5432/${POSTGRES_DB:-leetspice}
       SECRET_KEY: ${SECRET_KEY:-replace-this-local-development-key}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-}
       RUNNER_BACKEND: ${RUNNER_BACKEND:-ngspice}
       CHALLENGES_PATH: /app/challenges
       PDK_ROOT: /opt/IHP-Open-PDK

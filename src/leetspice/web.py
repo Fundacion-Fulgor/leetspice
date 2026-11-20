@@ -26,7 +26,7 @@ from markupsafe import Markup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .auth import hash_password, new_session, require_csrf, verify_password
+from .auth import OIDC_PASSWORD_MARKER, hash_password, new_session, require_csrf, verify_password
 from .config import get_settings
 from .db import get_session
 from .judge.validator import validate_netlist
@@ -153,8 +153,11 @@ def _missing_prerequisites(
 
 
 def _context(request: Request, db: Session, **values: object) -> dict[str, object]:
+    settings = request.app.state.settings
     return {
         "request": request,
+        "oidc_enabled": settings.oidc_enabled,
+        "oidc_button_label": settings.oidc_button_label,
         "current_user": _current_user(request, db),
         "csrf_token": request.state.session["csrf"],
         **values,
@@ -400,7 +403,9 @@ def profile_password(
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     error = None
-    if not verify_password(user.password_hash, current_password):
+    if user.password_hash == OIDC_PASSWORD_MARKER:
+        error = "Your password is managed by Fundación Fulgor."
+    elif not verify_password(user.password_hash, current_password):
         error = "Current password is incorrect."
     elif len(new_password) < 10:
         error = "New password must be at least 10 characters."

@@ -27,6 +27,22 @@ class Settings(BaseSettings):
     rate_limit_auth: str = "10/minute"
     rate_limit_submission: str = "20/minute"
 
+    # Optional single sign-on via Authentik (OpenID Connect). Enabled only when
+    # issuer, client id and client secret are all set.
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_scopes: str = "openid email profile"
+    # When set, User.is_admin is synced from the "groups" claim on every OIDC login.
+    oidc_admin_group: str = ""
+    oidc_button_label: str = "Sign in with Fundación Fulgor"
+    # Optional override for the callback URL; defaults to one built from the request.
+    oidc_redirect_url: str = ""
+
+    @property
+    def oidc_enabled(self) -> bool:
+        return bool(self.oidc_issuer and self.oidc_client_id and self.oidc_client_secret)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -121,7 +121,7 @@ Netlists are validated before inclusion in private server-owned ngspice decks. D
 
 ## Authentication scope
 
-The intended PoC auth scope is local first-party accounts, password hashing, login/logout, and authorization checks that keep submissions attached to their owner. OAuth, account recovery, email verification, administrator roles, multi-tenancy, and API tokens are out of scope until explicitly designed. Authentication does not make submitted netlists safe to execute.
+The intended PoC auth scope is local first-party accounts, password hashing, login/logout, and authorization checks that keep submissions attached to their owner. Optional single sign-on through Authentik (OpenID Connect) is supported; see [DEPLOYMENT.md](DEPLOYMENT.md). Account recovery, email verification, multi-tenancy, and API tokens are out of scope until explicitly designed. Authentication does not make submitted netlists safe to execute.
 
 ## Documentation
 

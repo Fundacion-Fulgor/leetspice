@@ -6,7 +6,11 @@
   <div class="panel form-panel profile-actions">
     <h2>Account settings</h2>
     <button class="primary" onclick="document.getElementById('name-form').hidden=false; this.hidden=true">Change display name</button>
+    {% if current_user.password_hash == "!oidc" %}
+    <p class="muted">Your password is managed by Fundación Fulgor.</p>
+    {% else %}
     <button class="primary" onclick="document.getElementById('password-form').hidden=false; this.hidden=true">Change password</button>
+    {% endif %}
     {% if current_user.is_admin or current_user.is_tester %}
     <a href="/admin" class="primary admin-link">Admin panel &#x2192;</a>
     {% endif %}
@@ -19,6 +23,7 @@
     <label>Display name<input name="display_name" maxlength="80" required value="{{ current_user.display_name }}" autocomplete="name"></label>
     <button class="primary">Update name</button>
   </form>
+  {% if current_user.password_hash != "!oidc" %}
   <form method="post" action="/profile/password" class="panel form-panel" id="password-form"{% if not show_password %} hidden{% endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h2>Change password</h2>
@@ -29,5 +34,6 @@
     <label>Confirm new password<input type="password" name="confirm_password" minlength="10" required autocomplete="new-password"></label>
     <button class="primary">Change password</button>
   </form>
+  {% endif %}
 </section>
 {% endblock %}
