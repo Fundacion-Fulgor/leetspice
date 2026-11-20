@@ -67,3 +67,36 @@ def test_tester_activity_counts_verified_created_and_testing(client) -> None:
     assert [ch.id for ch in rows["dani"].created] == [c[7].id]
     # Most verified first, then most created, then by name.
     assert order == ["ana", "beto", "dani", "carla"]
+
+
+def _make_current_user(*, admin: bool = False, tester: bool = False) -> None:
+    with db.SessionLocal() as session:
+        user = session.scalar(select(User).where(User.email == "designer@example.com"))
+        user.is_admin = admin
+        user.is_tester = tester
+        session.commit()
+
+
+def test_admins_see_the_tester_activity_page(client, register) -> None:
+    register()
+    _make_current_user(admin=True)
+    with db.SessionLocal() as session:
+        ana = _user(session, "ana", tester=True)
+        challenge = session.scalar(select(Challenge).order_by(Challenge.id))
+        _verify(challenge, ana)
+        challenge.created_by_id = ana.id
+        session.commit()
+        title, slug = challenge.title, challenge.slug
+
+    page = client.get("/admin/tester-activity")
+    assert page.status_code == 200
+    assert "Activity by tester" in page.text
+    assert "ana@example.com" in page.text
+    assert f'href="/challenges/{slug}"' in page.text
+    assert title in page.text
+
+
+def test_testers_cannot_open_the_tester_activity_page(client, register) -> None:
+    register()
+    _make_current_user(tester=True)
+    assert client.get("/admin/tester-activity").status_code == 403
