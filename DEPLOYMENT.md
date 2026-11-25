@@ -89,6 +89,19 @@ How it behaves:
 - Local sign-up, local login, display-name and password changes are switched off. "Log out" ends the Authentik session.
 - There is no password break-glass while SSO is on. To recover admin rights, add the person to `leetspice-admin` in Authentik. If Authentik itself is down, stop the stack, set `SSO_ENABLED=false` and start it again: local accounts that were linked keep their old password.
 
+### Switching an existing stack to single sign-on
+
+This is how leetspice.ffulgor.org (LXC 119, run by `leetspice.service`) was switched on 2026-11-25.
+
+1. Back up first, into `/root/backup/` on the host (mode 600): a `pg_dump` of the database (`leetspice-pre-sso.sql`), copies of `.env` (`env.pre-sso`), `Caddyfile.local` and `compose.override.yaml`, and a tag on the running image (`podman tag leetspice:prod leetspice:prod-pre-sso`).
+2. Add `SSO_ENABLED=true` and `SSO_PROXY_SECRET=<openssl rand -hex 32>` to `.env`, add the `header_up` line to the Caddyfile in use (here `Caddyfile.local`), `git merge --ff-only origin/develop` and build the web image. Building before the restart keeps the outage short.
+3. `systemctl restart leetspice`. Compose recreates the containers with the new environment and Caddyfile, and the web container applies the migrations at start (`b7e4d2a9c1f0` to `d3f5a8b1c2e4` to `f4a6c9d2e7b1`).
+4. Check from inside the host. Caddy's site address is `http://<domain>, :80`, so a request to `http://127.0.0.1/` without a `Host` header gets a 404; send the domain:
+   - `curl -s -o /dev/null -w '%{http_code}' -H 'Host: leetspice.ffulgor.org' http://127.0.0.1/` gives 302 to Authentik, also with a forged `X-Leetspice-Proxy-Secret` header.
+   - From the web container, `/` without the secret gives 403 and `/health` gives 200.
+   - From outside, `https://<domain>/` gives 302 to the Authentik host.
+5. Roll back by restoring the backed-up `Caddyfile.local` and `.env`, retagging `leetspice:prod-pre-sso` as `leetspice:prod`, checking out the old commit (9ccb2d1), running `alembic downgrade b7e4d2a9c1f0` (or restoring the dump), and restarting the service. The old code cannot start against the newer migration chain.
+
 ## Security Notes
 
 - **No exposed database port**: PostgreSQL is only reachable by web and worker containers.
