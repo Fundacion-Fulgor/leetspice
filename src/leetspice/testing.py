@@ -1,5 +1,6 @@
 """Testing bench: testers try challenges and track their verification status."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 from urllib.parse import urlencode
@@ -196,6 +197,64 @@ def _bench_user(request: Request, db: Session) -> User:
     if user is None or not (user.is_tester or user.is_admin):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
     return user
+
+
+@dataclass(frozen=True, slots=True)
+class ActivitySummary:
+    """What one tester has verified, created and is testing right now."""
+
+    user: User
+    verified: tuple[Challenge, ...]
+    created: tuple[Challenge, ...]
+    testing: tuple[Challenge, ...]
+
+
+def collect_tester_activity(db: Session, now: datetime | None = None) -> list[ActivitySummary]:
+    """Activity of every tester and every admin, since admins can do a tester's work too.
+
+    Anyone else with recorded activity (e.g. a former tester) is listed as well.
+    "Verified" counts the challenges whose current, still-valid verification is theirs:
+    a verification that was reported, invalidated or outdated by a new judge version
+    no longer counts.
+    """
+    now = now or datetime.now(UTC)
+    challenges = db.scalars(select(Challenge).order_by(Challenge.curriculum_order, Challenge.id))
+    verified: dict[int, list[Challenge]] = {}
+    created: dict[int, list[Challenge]] = {}
+    testing: dict[int, list[Challenge]] = {}
+    for challenge in challenges:
+        state = effective_status(challenge, now)
+        if state == "verified" and challenge.verified_by_id is not None:
+            verified.setdefault(challenge.verified_by_id, []).append(challenge)
+        if state == "testing" and challenge.claimed_by_id is not None:
+            testing.setdefault(challenge.claimed_by_id, []).append(challenge)
+        if challenge.created_by_id is not None:
+            created.setdefault(challenge.created_by_id, []).append(challenge)
+
+    active_ids = set(verified) | set(created) | set(testing)
+    users = db.scalars(
+        select(User).where(
+            User.is_tester.is_(True) | User.is_admin.is_(True) | User.id.in_(active_ids)
+        )
+    )
+    rows = [
+        ActivitySummary(
+            user=user,
+            verified=tuple(verified.get(user.id, ())),
+            created=tuple(created.get(user.id, ())),
+            testing=tuple(testing.get(user.id, ())),
+        )
+        for user in users
+    ]
+    return sorted(
+        rows,
+        key=lambda row: (
+            -len(row.verified),
+            -len(row.created),
+            row.user.display_name.casefold(),
+            row.user.id,
+        ),
+    )
 
 
 def bench_order(challenge: Challenge) -> tuple[int, int, int]:
