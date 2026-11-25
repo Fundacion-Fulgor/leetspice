@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,21 +28,22 @@ class Settings(BaseSettings):
     rate_limit_auth: str = "10/minute"
     rate_limit_submission: str = "20/minute"
 
-    # Optional single sign-on via Authentik (OpenID Connect). Enabled only when
-    # issuer, client id and client secret are all set.
-    oidc_issuer: str = ""
-    oidc_client_id: str = ""
-    oidc_client_secret: str = ""
-    oidc_scopes: str = "openid email profile"
-    # When set, User.is_admin is synced from the "groups" claim on every OIDC login.
-    oidc_admin_group: str = ""
-    oidc_button_label: str = "Sign in with Fundación Fulgor"
-    # Optional override for the callback URL; defaults to one built from the request.
-    oidc_redirect_url: str = ""
+    # Single sign-on through Authentik forward auth (Caddy). When enabled, accounts and roles come
+    # only from the headers Caddy copies from the Authentik outpost's response, and the local
+    # sign-up / password login is switched off. Requests must carry the shared proxy secret.
+    sso_enabled: bool = False
+    sso_proxy_secret: str = ""
+    # Members of these Authentik groups become LeetSpice admins / testers (on every request).
+    sso_admin_group: str = "leetspice-admin"
+    sso_tester_group: str = "leetspice-tester"
+    # Where "Log out" goes: Caddy proxies this path to the Authentik outpost.
+    sso_logout_url: str = "/outpost.goauthentik.io/sign_out"
 
-    @property
-    def oidc_enabled(self) -> bool:
-        return bool(self.oidc_issuer and self.oidc_client_id and self.oidc_client_secret)
+    @model_validator(mode="after")
+    def _sso_needs_a_proxy_secret(self) -> "Settings":
+        if self.sso_enabled and len(self.sso_proxy_secret) < 16:
+            raise ValueError("SSO_ENABLED requires SSO_PROXY_SECRET (at least 16 characters)")
+        return self
 
 
 @lru_cache

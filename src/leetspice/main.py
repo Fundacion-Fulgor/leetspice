@@ -4,7 +4,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import Response
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -13,8 +14,8 @@ from .admin import setup_admin
 from .auth import new_session, read_session, set_session_cookie
 from .challenge_catalog import seed_challenges
 from .config import Settings, get_settings
-from .oidc import router as oidc_router
 from .schemas import HealthRead
+from .sso import Identity, SsoError, check_proxy_secret, read_identity, sync_user
 from .testing import router as testing_router
 from .web import router
 
@@ -50,12 +51,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pass
         return await call_next(request)  # type: ignore[operator]
 
+    def _sign_in(identity: Identity) -> int:
+        with db.SessionLocal() as session:
+            return sync_user(session, identity, settings)
+
     @application.middleware("http")
     async def session_middleware(request: Request, call_next: object) -> Response:
         payload = read_session(request, settings)
         if not payload:
             payload = new_session(None, settings)
         request.state.session = payload
+        if settings.sso_enabled and request.url.path != "/health":
+            try:
+                if request.url.path.startswith("/static/"):
+                    check_proxy_secret(request, settings)
+                else:
+                    identity = read_identity(request, settings)
+                    # The proxy's headers decide who this is, whatever the cookie says.
+                    payload["user_id"] = await run_in_threadpool(_sign_in, identity)
+            except SsoError as exc:
+                return PlainTextResponse(exc.message, status_code=exc.status_code)
         response = await call_next(request)  # type: ignore[operator]
         set_session_cookie(response, request.state.session, settings)
         return response
@@ -72,7 +87,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name="static",
     )
     application.include_router(router)
-    application.include_router(oidc_router)
     application.include_router(testing_router)
     setup_admin(application, db.engine, settings)
 
