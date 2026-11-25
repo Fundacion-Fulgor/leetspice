@@ -21,11 +21,11 @@ def hash_password(password: str) -> str:
     return password_hasher.hash(password)
 
 
-OIDC_PASSWORD_MARKER = "!oidc"
+SSO_PASSWORD_MARKER = "!sso"
 
 
 def verify_password(password_hash: str, password: str) -> bool:
-    if password_hash == OIDC_PASSWORD_MARKER:
+    if password_hash == SSO_PASSWORD_MARKER:
         return False
     try:
         return password_hasher.verify(password_hash, password)

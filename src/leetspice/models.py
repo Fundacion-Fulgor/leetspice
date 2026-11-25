@@ -19,11 +19,13 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(80))
-    # "!oidc" marks an account created through single sign-on (no usable password).
+    # "!sso" marks an account created through single sign-on (no usable password).
     password_hash: Mapped[str] = mapped_column(String(255))
-    oidc_subject: Mapped[str | None] = mapped_column(
+    # Authentik's stable user id (the X-authentik-uid header); the key for single sign-on accounts.
+    authentik_uid: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True, index=True
     )
+    authentik_username: Mapped[str | None] = mapped_column(String(150), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Testers try out and verify challenges; their submissions never reach the rankings.
     is_tester: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

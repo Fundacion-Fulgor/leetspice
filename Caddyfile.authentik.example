@@ -1,0 +1,48 @@
+# Caddyfile for single sign-on through Authentik forward auth (see DEPLOYMENT.md).
+# TLS terminates elsewhere (e.g. a Cloudflare tunnel); Caddy speaks plain HTTP only.
+# Needs SSO_PROXY_SECRET in Caddy's environment (compose.prod.yaml passes it through).
+{
+	auto_https off
+	servers {
+		# Trust X-Forwarded-* only from the tunnel host.
+		trusted_proxies static 172.16.0.83/32
+	}
+}
+
+http://leetspice.example.org, :80 {
+	encode gzip zstd
+
+	request_body {
+		max_size 10MB
+	}
+
+	@static path /static/*
+	header @static Cache-Control "public, max-age=86400, stale-while-revalidate=604800"
+
+	route {
+		# Authentik embedded outpost endpoints (sign-in callback, sign-out)
+		reverse_proxy /outpost.goauthentik.io/* http://authentik.example.internal:9000
+
+		# Forward auth in front of everything else. Caddy replaces these request headers with the
+		# outpost's values (or empties them), so a client cannot send its own.
+		forward_auth http://authentik.example.internal:9000 {
+			uri /outpost.goauthentik.io/auth/caddy
+			copy_headers X-Authentik-Username X-Authentik-Groups X-Authentik-Email X-Authentik-Name X-Authentik-Uid
+			trusted_proxies private_ranges
+		}
+
+		reverse_proxy web:8000 {
+			# The app only believes the identity headers on requests that carry this secret.
+			header_up X-Leetspice-Proxy-Secret {$SSO_PROXY_SECRET}
+		}
+	}
+
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

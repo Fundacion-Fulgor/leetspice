@@ -26,7 +26,7 @@ from markupsafe import Markup
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .auth import OIDC_PASSWORD_MARKER, hash_password, new_session, require_csrf, verify_password
+from .auth import SSO_PASSWORD_MARKER, hash_password, new_session, require_csrf, verify_password
 from .config import get_settings
 from .db import get_session
 from .judge.validator import validate_netlist
@@ -35,6 +35,18 @@ from .limiter import limiter
 from .models import Challenge, Submission, User
 
 router = APIRouter()
+
+
+def _sso_on(request: Request) -> bool:
+    return bool(request.app.state.settings.sso_enabled)
+
+
+def _local_accounts_only(request: Request) -> None:
+    """Sign-up and password login do not exist while single sign-on is on."""
+    if _sso_on(request):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+
 markdown = MarkdownIt("commonmark", {"html": False, "linkify": False}).enable("table")
 SUBMISSIONS_PAGE_SIZE = 25
 templates = Jinja2Templates(
@@ -156,8 +168,7 @@ def _context(request: Request, db: Session, **values: object) -> dict[str, objec
     settings = request.app.state.settings
     return {
         "request": request,
-        "oidc_enabled": settings.oidc_enabled,
-        "oidc_button_label": settings.oidc_button_label,
+        "sso_enabled": settings.sso_enabled,
         "current_user": _current_user(request, db),
         "csrf_token": request.state.session["csrf"],
         **values,
@@ -233,7 +244,9 @@ def catalog(request: Request, db: Annotated[Session, Depends(get_session)]) -> H
 
 
 @router.get("/register", response_class=HTMLResponse)
-def register_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+def register_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> Response:
+    if _sso_on(request):
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(request, "register.html", _context(request, db))
 
 
@@ -354,6 +367,7 @@ def profile_update(
     csrf_token: Annotated[str, Form()],
 ) -> Response:
     require_csrf(request, csrf_token)
+    _local_accounts_only(request)  # the name comes from Authentik
     user = _current_user(request, db)
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -403,7 +417,7 @@ def profile_password(
     if user is None:
         return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
     error = None
-    if user.password_hash == OIDC_PASSWORD_MARKER:
+    if _sso_on(request) or user.password_hash == SSO_PASSWORD_MARKER:
         error = "Your password is managed by Fundación Fulgor."
     elif not verify_password(user.password_hash, current_password):
         error = "Current password is incorrect."
@@ -438,6 +452,7 @@ def register(
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
 ) -> Response:
+    _local_accounts_only(request)
     require_csrf(request, csrf_token)
     normalized_email = email.strip().lower()
     name = display_name.strip()
@@ -465,7 +480,9 @@ def register(
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> HTMLResponse:
+def login_form(request: Request, db: Annotated[Session, Depends(get_session)]) -> Response:
+    if _sso_on(request):
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(request, "login.html", _context(request, db))
 
 
@@ -478,6 +495,7 @@ def login(
     password: Annotated[str, Form()],
     csrf_token: Annotated[str, Form()],
 ) -> Response:
+    _local_accounts_only(request)
     require_csrf(request, csrf_token)
     user = db.scalar(select(User).where(User.email == email.strip().lower()))
     if user is None or not verify_password(user.password_hash, password):
@@ -494,6 +512,11 @@ def login(
 @router.post("/logout")
 def logout(request: Request, csrf_token: Annotated[str, Form()]) -> RedirectResponse:
     require_csrf(request, csrf_token)
+    if _sso_on(request):
+        # The identity lives in Authentik: end that session (the cookie is rebuilt from headers).
+        return RedirectResponse(
+            request.app.state.settings.sso_logout_url, status_code=status.HTTP_303_SEE_OTHER
+        )
     request.state.session = new_session(None, request.app.state.settings)
     return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
 

@@ -5,25 +5,29 @@
   <div><p class="eyebrow">LAB IDENTITY</p><h1>Your<br><em>profile.</em></h1><p>{{ current_user.display_name }} · {{ current_user.email }}</p></div>
   <div class="panel form-panel profile-actions">
     <h2>Account settings</h2>
+    {% if sso_enabled %}
+    <p class="muted">Your name, email and password are managed by Fundación Fulgor.</p>
+    {% else %}
     <button class="primary" onclick="document.getElementById('name-form').hidden=false; this.hidden=true">Change display name</button>
-    {% if current_user.password_hash == "!oidc" %}
+    {% if current_user.password_hash == "!sso" %}
     <p class="muted">Your password is managed by Fundación Fulgor.</p>
     {% else %}
     <button class="primary" onclick="document.getElementById('password-form').hidden=false; this.hidden=true">Change password</button>
+    {% endif %}
     {% endif %}
     {% if current_user.is_admin or current_user.is_tester %}
     <a href="/admin" class="primary admin-link">Admin panel &#x2192;</a>
     {% endif %}
   </div>
-  <form method="post" action="/profile" class="panel form-panel" id="name-form"{% if not show_name %} hidden{% endif %}>
+  {% if not sso_enabled %}<form method="post" action="/profile" class="panel form-panel" id="name-form"{% if not show_name %} hidden{% endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h2>Display name</h2>
     {% if name_error %}<div class="alert">{{ name_error }}</div>{% endif %}
     {% if name_success %}<div class="alert success">Display name updated.</div>{% endif %}
     <label>Display name<input name="display_name" maxlength="80" required value="{{ current_user.display_name }}" autocomplete="name"></label>
     <button class="primary">Update name</button>
-  </form>
-  {% if current_user.password_hash != "!oidc" %}
+  </form>{% endif %}
+  {% if not sso_enabled and current_user.password_hash != "!sso" %}
   <form method="post" action="/profile/password" class="panel form-panel" id="password-form"{% if not show_password %} hidden{% endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h2>Change password</h2>

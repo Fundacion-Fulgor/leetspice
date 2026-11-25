@@ -33,7 +33,7 @@ docker compose -f compose.prod.yaml up -d --build
 > First build takes ~10 minutes (compiles Magic, Netgen, OpenVAF, IHP PDK).
 > Subsequent builds use Docker cache and are much faster.
 
-### 3. Create an admin user
+### 3. Create an admin user (not with single sign-on, see below)
 
 ```bash
 docker compose -f compose.prod.yaml exec web \
@@ -72,17 +72,22 @@ docker compose -f compose.prod.yaml exec db \
   pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup_$(date +%F).sql
 ```
 
-## Single sign-on (Authentik OIDC)
+## Single sign-on (Authentik forward auth)
 
-LeetSpice can offer "Sign in with Fundación Fulgor" through Authentik. Local email/password accounts keep working.
+LeetSpice can take its accounts and roles from Authentik. Caddy asks Authentik's embedded outpost about every request (`forward_auth`) and, when the user is allowed in, copies the outpost's identity headers onto the request it proxies to the app. `Caddyfile.authentik.example` is a working Caddyfile for this (plain HTTP behind a Cloudflare tunnel; adjust the site address and the outpost address).
 
-1. In Authentik create an **OAuth2/OpenID Provider** (confidential client) and an Application for it.
-2. Set the redirect URI (strict) to `https://<domain>/auth/oidc/callback`.
-3. Select the scopes `openid`, `email` and `profile`. The `groups` claim is included by Authentik's default profile scope.
-4. Set in `.env`: `OIDC_ISSUER` (e.g. `https://auth.example.org/application/o/<slug>/`), `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`.
-5. Optionally set `OIDC_ADMIN_GROUP` to an Authentik group name. Admin rights are synced from the `groups` claim on every OIDC login: members are granted admin and non-members lose it. If empty, OIDC never changes admin rights.
+1. In Authentik create a **Proxy provider** in *forward auth (single application)* mode for the public URL and an Application for it; bind the policy that decides who may open LeetSpice to the application.
+2. Create the Authentik groups `leetspice-admin` and `leetspice-tester`.
+3. Generate a secret with `openssl rand -hex 32` and set in `.env`: `SSO_ENABLED=true` and `SSO_PROXY_SECRET=<secret>`. The same value reaches Caddy through the `caddy` service in `compose.prod.yaml`. The app refuses to start with `SSO_ENABLED=true` and no secret.
+4. Use `Caddyfile.authentik.example` as the Caddyfile.
 
-Users are matched by the OIDC subject; the first login of an existing local account with the same email links it. New users are created automatically and cannot use a local password.
+How it behaves:
+
+- The LeetSpice account is created on a person's first request and keyed by Authentik's stable user id (`X-authentik-uid`). Email, name and username are refreshed on every request. A pre-existing local account is linked on first sign-in only when its email matches the Authentik email exactly (ignoring case); after that the uid is the key, so an email change in Authentik does not create a second account. If the email already belongs to an account linked to a different Authentik user, the request gets a 409 and an administrator has to resolve it.
+- Role: members of `leetspice-admin` are admins and members of `leetspice-tester` are testers, evaluated on every request. Removing someone from a group takes the role away on their next request.
+- Trust: the app reads the identity headers only from requests that carry `X-Leetspice-Proxy-Secret` with the right value (Caddy overwrites that header on every request it proxies). Requests without it, or without the identity headers, get a 403. Only the headers named in Caddy's `copy_headers` are read; Caddy removes any client-supplied copy of those before adding the outpost's values. `/health` is exempt so the container health check works.
+- Local sign-up, local login, display-name and password changes are switched off. "Log out" ends the Authentik session.
+- There is no password break-glass while SSO is on. To recover admin rights, add the person to `leetspice-admin` in Authentik. If Authentik itself is down, stop the stack, set `SSO_ENABLED=false` and start it again: local accounts that were linked keep their old password.
 
 ## Security Notes
 

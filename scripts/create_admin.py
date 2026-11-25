@@ -6,11 +6,18 @@ import sys
 from sqlalchemy import select
 
 from leetspice.auth import hash_password
+from leetspice.config import get_settings
 from leetspice.db import SessionLocal
 from leetspice.models import User
 
 
 def create_admin(email: str, password: str, display_name: str) -> None:
+    if get_settings().sso_enabled:
+        print(
+            "SSO_ENABLED is on: admins come from the Authentik group (SSO_ADMIN_GROUP). "
+            "Add the person to that group instead."
+        )
+        sys.exit(1)
     with SessionLocal() as session:
         existing = session.scalar(select(User).where(User.email == email))
         if existing:

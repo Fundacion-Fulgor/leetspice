@@ -112,6 +112,15 @@ def _page(title: str, icon: str, subtitle: str, body: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _session_payload(request: Request, settings: Settings) -> dict:
+    """The session the app's middleware built for this request (single sign-on sets it from the
+    proxy's headers, so it is current even on the first request), else the signed cookie."""
+    state_session = getattr(request.state, "session", None)
+    if isinstance(state_session, dict) and state_session.get("user_id"):
+        return state_session
+    return read_session(request, settings)
+
+
 class AdminAuth(AuthenticationBackend):
     def __init__(self, settings: Settings) -> None:
         super().__init__(secret_key=settings.secret_key)
@@ -124,7 +133,7 @@ class AdminAuth(AuthenticationBackend):
         return False
 
     async def authenticate(self, request: Request) -> bool | Response:
-        payload = read_session(request, self._settings)
+        payload = _session_payload(request, self._settings)
         user_id = payload.get("user_id")
         if not user_id:
             return RedirectResponse(request.url_for("login_form"), status_code=302)
@@ -141,7 +150,7 @@ _settings: Settings | None = None
 
 def _request_user(request: Request) -> User | None:
     """Return the logged-in user for an admin-panel request, detached from its session."""
-    payload = read_session(request, _settings or get_settings())
+    payload = _session_payload(request, _settings or get_settings())
     user_id = payload.get("user_id")
     if not user_id:
         return None

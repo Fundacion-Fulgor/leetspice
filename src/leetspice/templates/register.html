@@ -7,10 +7,6 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h2>Create account</h2>
     {% if error %}<div class="alert">{{ error }}</div>{% endif %}
-    {% if oidc_enabled %}
-    <a class="primary sso-button" href="/auth/oidc/login">{{ oidc_button_label }}</a>
-    <p class="sso-divider"><span>or</span></p>
-    {% endif %}
     <label>Display name<input name="display_name" maxlength="80" required value="{{ display_name|default('') }}" autocomplete="name"></label>
     <label>Email<input type="email" name="email" maxlength="320" required value="{{ email|default('') }}" autocomplete="email"></label>
     <label>Password<input type="password" name="password" minlength="10" required autocomplete="new-password"><small>10 characters minimum</small></label>
